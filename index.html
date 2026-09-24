@@ -131,130 +131,103 @@
 
   <main class="grid">
 
-    <!-- FITNESS: hero panel -->
+    <!-- FITNESS: hero panel (Logik in js/fitness/*) -->
     <section class="panel panel-hero" id="panel-fitness">
       <div class="panel-head">
         <h2>01 · FITNESS</h2>
-        <span class="panel-sub" id="phaseLabel">Phase --</span>
+        <span class="panel-sub" id="phaseLabel">--</span>
       </div>
 
-      <div class="chart-range-row">
-        <span class="chart-range-label">Zeitraum</span>
-        <div class="range-toggle" id="chartRangeToggle">
-          <button type="button" data-range="week">Woche</button>
-          <button type="button" data-range="month">Monat</button>
-          <button type="button" data-range="all">All-Time</button>
-        </div>
-      </div>
-
-      <div class="fitness-grid">
-        <div class="fitness-chart-wrap">
-          <canvas id="weightChart" height="180"></canvas>
-        </div>
-
-        <div class="fitness-side">
-          <div class="stat-row">
-            <div class="stat">
-              <span class="stat-label">Ø 7 Tage</span>
-              <span class="stat-value" id="avgWeight">--.- kg</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Zielgewicht</span>
-              <span class="stat-value" id="targetWeight">--.- kg</span>
-            </div>
+      <!-- A · Körpergewicht -->
+      <div class="fx-block" id="fxWeight">
+        <div class="fx-kpis">
+          <div class="fx-kpi fx-kpi-main">
+            <span class="stat-label" id="wkAvgLabel">Ø diese Woche</span>
+            <span class="fx-big"><span id="wkAvg">--.-</span><small>kg</small></span>
+            <span class="fx-kpi-sub" id="wkAvgSub"></span>
           </div>
-
-          <form id="weightForm" class="inline-form">
-            <input type="number" step="0.1" id="weightInput" placeholder="Gewicht heute (kg)" required>
-            <button type="submit">LOG</button>
-          </form>
-
-          <div class="macro-readout" id="macroReadout"></div>
-
-          <div class="goal-setup">
-            <button class="goal-toggle" id="goalToggleBtn" type="button">ZIEL / PROFIL BEARBEITEN</button>
-            <form id="goalForm" class="goal-form hidden">
-              <div class="goal-form-row">
-                <label>Geschlecht
-                  <select id="goalSex">
-                    <option value="m">Männlich</option>
-                    <option value="w">Weiblich</option>
-                  </select>
-                </label>
-                <label>Alter
-                  <input type="number" id="goalAge" min="10" max="100" step="1">
-                </label>
-              </div>
-              <div class="goal-form-row">
-                <label>Grösse (cm)
-                  <input type="number" id="goalHeight" min="100" max="250" step="1">
-                </label>
-                <label>Aktivität
-                  <select id="goalActivity">
-                    <option value="sedentary">Sitzend</option>
-                    <option value="light">Leicht aktiv</option>
-                    <option value="moderate">Moderat aktiv</option>
-                    <option value="active">Sehr aktiv</option>
-                    <option value="very_active">Extrem aktiv</option>
-                  </select>
-                </label>
-              </div>
-              <div class="goal-form-row">
-                <label>Ziel
-                  <select id="goalType">
-                    <option value="lose">Abnehmen</option>
-                    <option value="gain">Zunehmen</option>
-                    <option value="recomp">Muskelaufbau (lean)</option>
-                    <option value="maintain">Halten</option>
-                  </select>
-                </label>
-                <label>Zielgewicht (kg)
-                  <input type="number" id="goalTargetWeight" step="0.1">
-                </label>
-              </div>
-              <div class="goal-form-row">
-                <label>Zieldatum
-                  <input type="date" id="goalTargetDate">
-                </label>
-                <label>Protein g/kg <span class="goal-optional">(optional)</span>
-                  <input type="number" id="goalProteinOverride" step="0.1" placeholder="auto">
-                </label>
-              </div>
-              <button type="submit">SPEICHERN</button>
-            </form>
+          <div class="fx-kpi">
+            <span class="stat-label">Vorwoche</span>
+            <span class="stat-value" id="wkPrev">--.-</span>
+            <span class="fx-kpi-sub" id="wkDelta"></span>
+          </div>
+          <div class="fx-kpi">
+            <span class="stat-label">Tempo (4 Wochen)</span>
+            <span class="stat-value" id="wkRate">--</span>
+            <span class="fx-kpi-sub" id="wkRatePlan"></span>
           </div>
         </div>
+
+        <div class="fx-course" id="courseBox"></div>
+        <div class="fx-targets" id="phaseTargets"></div>
+
+        <form id="weightForm" class="fx-weight-form" autocomplete="off">
+          <input type="date" id="weightDate" aria-label="Datum der Messung" required>
+          <input type="text" inputmode="decimal" id="weightInput" placeholder="kg" aria-label="Morgengewicht in kg" required>
+          <button type="submit" id="weightSubmit">Speichern</button>
+        </form>
+
+        <div class="chart-range-row">
+          <span class="chart-range-label">Zeitraum</span>
+          <div class="range-toggle" id="weightRange"></div>
+        </div>
+        <div class="chart-box"><canvas id="weightChart"></canvas></div>
+
+        <details class="fx-details">
+          <summary>Letzte Einträge</summary>
+          <div id="weightList"></div>
+        </details>
+        <details class="fx-details" id="planDetails">
+          <summary>Bulk/Cut-Plan bearbeiten</summary>
+          <form id="planForm" class="fx-plan-form"></form>
+        </details>
       </div>
 
-      <div class="workout-block">
+      <!-- B · Training loggen -->
+      <div class="fx-block workout-block">
         <div class="workout-head">
-          <span class="panel-sub">Trainings diese Woche: <b id="workoutStreak">0</b> / 2</span>
+          <h3 class="fx-h3">Training</h3>
+          <span class="panel-sub">Diese Woche <b id="workoutWeekCount">0</b> / <span id="workoutWeekTarget">2</span></span>
         </div>
-        <div class="session-tabs" id="sessionTabs">
-          <button type="button" class="session-tab" data-session="1">TRAINING 1</button>
-          <button type="button" class="session-tab" data-session="2">TRAINING 2</button>
-          <label class="session-date-label">Datum
-            <input type="date" id="sessionDateInput">
-          </label>
+
+        <div class="fx-daynav">
+          <button type="button" class="fx-icon fx-nav" id="wDayPrev" aria-label="Vorheriger Tag">‹</button>
+          <input type="date" id="workoutDate" aria-label="Trainingsdatum">
+          <button type="button" class="fx-icon fx-nav" id="wDayNext" aria-label="Nächster Tag">›</button>
+          <button type="button" class="fx-chip" id="wDayToday">Heute</button>
         </div>
-        <div class="exercise-list-head">
-          <span></span><span>Übung</span><span>kg</span><span>Wdh.</span>
-        </div>
+        <div class="session-tabs" id="sessionTabs"></div>
+        <div class="fx-saveinfo" id="workoutSaveInfo"></div>
+
         <div class="exercise-list" id="exerciseList"></div>
+
+        <details class="fx-details">
+          <summary>Letzte Trainings</summary>
+          <div id="recentWorkoutList"></div>
+        </details>
+        <details class="fx-details">
+          <summary>Übungen &amp; Vorlagen verwalten</summary>
+          <div id="manageBox" class="mg-box"></div>
+        </details>
       </div>
 
-      <div class="exercise-history">
-        <div class="panel-head" style="margin-bottom:10px;">
-          <h2 style="font-size:12px;">ÜBUNGS-VERLAUF</h2>
-          <select id="exerciseSelect" class="exercise-select"></select>
+      <!-- C · Fortschritt pro Übung -->
+      <div class="fx-block exercise-history">
+        <div class="workout-head">
+          <h3 class="fx-h3">Fortschritt pro Übung</h3>
         </div>
-        <div class="history-charts">
-          <div class="history-chart-wrap">
-            <canvas id="exWeightChart" height="120"></canvas>
-          </div>
-          <div class="history-chart-wrap">
-            <canvas id="exRepsChart" height="120"></canvas>
-          </div>
+        <select id="exerciseSelect" class="exercise-select" aria-label="Übung wählen"></select>
+        <div class="chart-range-row">
+          <div class="range-toggle" id="metricToggle"></div>
+          <div class="range-toggle" id="exRange"></div>
+        </div>
+        <div class="chart-box chart-box-lg"><canvas id="exChart"></canvas></div>
+        <p class="fx-hint" id="metricHelp"></p>
+        <div class="fx-exstats" id="exStats"></div>
+
+        <div class="fx-radar">
+          <h3 class="fx-h3">Plateau-Radar</h3>
+          <div id="plateauRadar"></div>
         </div>
       </div>
     </section>
@@ -301,6 +274,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

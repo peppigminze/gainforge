@@ -1,9 +1,15 @@
-const CACHE_NAME = "silvanos-cache-v2";
+const CACHE_NAME = "silvanos-cache-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./js/dates.js",
+  "./js/fitness/model.js",
+  "./js/fitness/analytics.js",
+  "./js/fitness/charts.js",
+  "./js/fitness/commands.js",
+  "./js/fitness/ui.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
