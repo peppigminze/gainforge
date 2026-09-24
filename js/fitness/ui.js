@@ -13,7 +13,7 @@ import {
 } from "./model.js";
 import {
   exerciseSeries, plateauStatus, previousPerformance, weightEntries, weeklyAverages,
-  courseStatus, currentPhase, plannedWeightAt, fmtSigned, METRICS,
+  courseStatus, currentPhase, plannedWeightAt, fmtSigned, METRICS, planActive,
 } from "./analytics.js";
 import { renderWeightChart, renderExerciseChart, RANGES } from "./charts.js";
 import { MUSCLES, WEEKLY_SET_TARGET, muscleOf, muscleSets, weekVolume, volumeHistory, streak, priorBest, isPR, prSetIndex, records, bodySVG } from "./gym.js";
@@ -114,17 +114,18 @@ export function renderFitnessTiles() {
   const cur = weekly.find(w => w.monday === mondayOf(today));
   const ref = cur || weekly[weekly.length - 1];
   const course = courseStatus(f, today);
-  const stCls = { on: "st-ok", slow: "st-warn", fast: "st-warn", nodata: "st-mute" }[course.state];
-  const stTxt = { on: "im Kurs", slow: "zu langsam", fast: "zu schnell", nodata: "keine Daten" }[course.state];
+  const stCls = { on: "st-ok", slow: "st-warn", fast: "st-warn", nodata: "st-mute", noplan: "st-mute" }[course.state];
+  const stTxt = { on: "im Kurs", slow: "zu langsam", fast: "zu schnell", nodata: "keine Daten", noplan: "ohne Plan" }[course.state];
+  const needsSetup = f.plan.configured === false;
   const todayLogged = f.weights[today] != null;
   const lastEntry = weightEntries(f).slice(-1)[0];
   document.getElementById("tileWeight").innerHTML = `
     ${ICONS.weight}
     <span class="t-cat">Gewicht</span>
     <span class="t-big">${ref ? fmtKg(ref.avg) : "--.-"}<small>kg</small></span>
-    <span class="t-sub">${cur ? `Schnitt diese Woche` : ref ? `Letzter Schnitt: KW ${isoWeek(ref.monday)}` : "Noch keine Messung"}</span>
+    <span class="t-sub">${needsSetup ? "Tippen, um dein Ziel einzurichten" : cur ? `Schnitt diese Woche` : ref ? `Letzter Schnitt: KW ${isoWeek(ref.monday)}` : "Noch keine Messung"}</span>
     ${sparkline(weekly.slice(-8).map(w => w.avg))}
-    <span class="t-foot">${todayLogged ? `<span class="t-state ${stCls}">${stTxt}</span>`
+    <span class="t-foot">${needsSetup ? `<span class="t-state st-warn">Plan einrichten</span>` : todayLogged ? `<span class="t-state ${stCls}">${stTxt}</span>`
       : `<span class="t-state st-warn">heute wiegen</span>${lastEntry ? `<span class="t-muted">zuletzt ${formatShort(lastEntry.date)}</span>` : ""}`}</span>`;
 
   /* --- Fortschritt --- */
@@ -151,7 +152,7 @@ export function renderFitnessTiles() {
   document.getElementById("tileMuscle").innerHTML = `
     <span class="t-cat">Muskeln</span>
     ${bodySVG(lv, { labels: false, cls: "mini" })}
-    <span class="t-foot">${hit.length ? `<span class="t-state st-ok">${esc(MUSCLES[hit[0][0]])} ${fmtSets(hit[0][1])}</span>` : `<span class="t-state st-mute">diese Woche noch nichts</span>`}
+    <span class="t-foot">${hit.length ? `<span class="t-state st-ok">${esc(MUSCLES[hit[0][0]])} ${fmtSets(hit[0][1])}</span>` : `<span class="t-state st-mute">noch leer</span>`}
       ${hit.length && miss.length ? `<span class="t-muted">fehlt: ${esc(MUSCLES[miss[0]])}</span>` : ""}</span>`;
 
   /* --- Volumen + Streak --- */
@@ -164,7 +165,7 @@ export function renderFitnessTiles() {
     <span class="t-sub">bewegt diese Woche</span>
     ${hist.some(v => v > 0) ? sparkline(hist) : ""}
     <span class="t-foot">${st.weeks ? `<span class="t-state st-ember">🔥 ${st.weeks} ${st.weeks === 1 ? "Woche" : "Wochen"} Streak</span>`
-      : `<span class="t-state st-mute">Streak: ${st.left} Training${st.left === 1 ? "" : "s"} fehlen</span>`}</span>`;
+      : `<span class="t-state st-mute">noch ${st.left} bis 🔥</span>`}</span>`;
 }
 
 function exerciseIdsWithData(f) {
@@ -180,15 +181,115 @@ function exerciseIdsWithData(f) {
 export function openWeight({ focus = false } = {}) {
   const f = fitness.getState();
   const ph = currentPhase(f.plan);
+  if (f.plan.configured === false) ui.wizard = ui.wizard || newWizard(f);
   openSheet({
     id: "weight", cat: "Körper", title: "Gewicht",
-    sub: ph && ph.state === "active" ? `${ph.seg.name} · Monat ${ph.monthNo} von ${ph.seg.months}` : "Bulk/Cut-Plan",
+    sub: f.plan.configured === false ? "Ziel einrichten" : ph && ph.state === "active" ? `${ph.seg.name} · Monat ${ph.monthNo} von ${ph.seg.months}` : planActive(f.plan) ? "Plan" : "ohne Plan",
     bind: bindWeight, render: renderWeightBody,
   });
-  if (focus) setTimeout(() => { const i = document.querySelector("#sheetBody [data-w='kg']"); if (i) i.focus(); }, 450);
+  if (focus && !ui.wizard) setTimeout(() => { const i = document.querySelector("#sheetBody [data-w='kg']"); if (i) i.focus(); }, 450);
+}
+
+/* ---------- Einrichtungs-Assistent (erstes Öffnen) ---------- */
+const GOALS = {
+  bulk: { label: "Aufbauen", phases: ["bulk"] },
+  cut: { label: "Definieren", phases: ["cut"] },
+  bulkcut: { label: "Aufbauen → Definieren", phases: ["bulk", "cut"] },
+  hold: { label: "Halten", phases: ["hold"] },
+};
+const PHASE_DEF = {
+  bulk: { name: "Bulk", months: 6 },
+  cut: { name: "Cut", months: 3 },
+  hold: { name: "Halten", months: 6 },
+};
+function newWizard(f) {
+  const last = weightEntries(f).slice(-1)[0];
+  const w = { goal: "bulk", weight: last ? String(last.kg) : "", height: f.plan.heightCm ? String(f.plan.heightCm) : "", start: todayKey(), creatine: "", phases: [] };
+  buildWizardPhases(w);
+  return w;
+}
+/** Grobe Startwerte aus dem Körpergewicht (Erhaltung ≈ 33 kcal/kg). Nur Vorschläge. */
+function suggest(type, kg, fromKg) {
+  const r5 = n => Math.round(n / 50) * 50;
+  kg = fromKg; // Werte der Phase ab ihrem Startgewicht rechnen
+  const base = kg * 33;
+  if (type === "bulk") { const to = +(fromKg + 0.8 * PHASE_DEF.bulk.months).toFixed(1); return { targetWeight: to, kcalMin: r5(base + 300), kcalMax: r5(base + 400), proteinMin: Math.round(kg * 1.8), proteinMax: Math.round(kg * 2.0) }; }
+  if (type === "cut") { const to = +(fromKg * (1 - 0.005 * 4.3 * PHASE_DEF.cut.months)).toFixed(1); return { targetWeight: to, kcalMin: r5(base - 550), kcalMax: r5(base - 450), proteinMin: Math.round(kg * 2.0), proteinMax: Math.round(kg * 2.3) }; }
+  return { targetWeight: +fromKg.toFixed(1), kcalMin: r5(base - 100), kcalMax: r5(base + 100), proteinMin: Math.round(kg * 1.6), proteinMax: Math.round(kg * 2.0) };
+}
+function buildWizardPhases(w) {
+  const kg = parseNum(w.weight);
+  let from = kg;
+  w.phases = GOALS[w.goal].phases.map(type => {
+    const d = PHASE_DEF[type];
+    const sug = kg ? suggest(type, kg, from) : {};
+    if (sug.targetWeight) from = sug.targetWeight;
+    const val = k => (sug[k] != null ? String(sug[k]) : "");
+    return { type, name: d.name, months: String(d.months), targetWeight: val("targetWeight"), kcalMin: val("kcalMin"), kcalMax: val("kcalMax"), proteinMin: val("proteinMin"), proteinMax: val("proteinMax") };
+  });
+}
+function wizardHTML(w) {
+  const fld = (k, label, value, mode = "decimal", i = null) =>
+    `<label>${label}<input class="field" ${i === null ? `data-wz="${k}"` : `data-wzp="${i}" data-k="${k}"`} inputmode="${mode}" value="${esc(value)}"></label>`;
+  return `
+    <div class="callout"><b>Willkommen</b>Richte kurz dein Ziel ein. Danach vergleicht die App deinen Wochenschnitt mit deinem Plan und zeigt dir Kalorien- und Proteinziel.</div>
+    <div class="psec">Dein Ziel</div>
+    <div class="seg wrap">${Object.entries(GOALS).map(([k, g]) => `<button type="button" data-goal="${k}" class="${w.goal === k ? "on" : ""}">${g.label}</button>`).join("")}</div>
+    <div class="psec">Über dich</div>
+    <div class="form-grid">
+      ${fld("weight", "Gewicht heute (kg)", w.weight)}
+      ${fld("height", "Grösse (cm, optional)", w.height, "numeric")}
+      <label>Start<input class="field" type="date" data-wz="start" value="${w.start}"></label>
+      ${fld("creatine", "Kreatin g/Tag (optional)", w.creatine)}
+    </div>
+    ${w.phases.map((ph, i) => `
+      <div class="phase-box">
+        <div class="phase-title">${i + 1}. ${esc(ph.name)}</div>
+        <div class="form-grid">
+          ${fld("months", "Dauer (Monate)", ph.months, "numeric", i)}
+          ${fld("targetWeight", "Zielgewicht (kg)", ph.targetWeight, "decimal", i)}
+          ${fld("kcalMin", "kcal von", ph.kcalMin, "numeric", i)}
+          ${fld("kcalMax", "kcal bis", ph.kcalMax, "numeric", i)}
+          ${fld("proteinMin", "Protein g von", ph.proteinMin, "numeric", i)}
+          ${fld("proteinMax", "Protein g bis", ph.proteinMax, "numeric", i)}
+        </div>
+      </div>`).join("")}
+    <p class="hint">Die Werte sind grobe Vorschläge aus deinem Gewicht (Erhaltung ≈ 33 kcal pro kg). Passe sie an, falls du deine Zahlen kennst. Alles lässt sich später unter „Plan bearbeiten“ ändern.</p>
+    <button type="button" class="btn ghost block" data-wz-act="suggest" style="margin-top:10px">Vorschläge neu berechnen</button>
+    <button type="button" class="btn primary block" data-wz-act="save" style="margin-top:10px">Plan speichern</button>
+    <button type="button" class="link" data-wz-act="skip" style="display:block;margin:10px auto 0">Überspringen, nur Gewicht tracken</button>`;
+}
+function saveWizard(body) {
+  const w = ui.wizard;
+  const kg = parseNum(w.weight);
+  const bad = sel => { const el = body.querySelector(sel); flash(el); return false; };
+  if (!(kg > 20 && kg < 400)) return bad('[data-wz="weight"]');
+  if (!isDayKey(w.start)) return bad('[data-wz="start"]');
+  const phases = [];
+  for (let i = 0; i < w.phases.length; i++) {
+    const ph = w.phases[i];
+    const num = k => parseNum(ph[k]);
+    const months = Math.round(num("months") || 0);
+    if (!(months >= 1 && months <= 36)) return bad(`[data-wzp="${i}"][data-k="months"]`);
+    if (!(num("targetWeight") > 20 && num("targetWeight") < 400)) return bad(`[data-wzp="${i}"][data-k="targetWeight"]`);
+    for (const k of ["kcalMin", "kcalMax", "proteinMin", "proteinMax"]) if (!(num(k) > 0)) return bad(`[data-wzp="${i}"][data-k="${k}"]`);
+    if (num("kcalMin") > num("kcalMax")) return bad(`[data-wzp="${i}"][data-k="kcalMax"]`);
+    if (num("proteinMin") > num("proteinMax")) return bad(`[data-wzp="${i}"][data-k="proteinMax"]`);
+    phases.push({ id: `${ph.type}_${i + 1}`, name: ph.name, months, targetWeight: num("targetWeight"),
+      kcalMin: Math.round(num("kcalMin")), kcalMax: Math.round(num("kcalMax")), proteinMin: Math.round(num("proteinMin")), proteinMax: Math.round(num("proteinMax")), targetBf: "" });
+  }
+  fitness.updatePlan({ configured: true, startDate: w.start, startWeight: kg, heightCm: parseNum(w.height), creatineG: parseNum(w.creatine) || 0, phases });
+  if (fitness.getState().weights[todayKey()] == null) fitness.logWeight(todayKey(), kg);
+  ui.wizard = null;
+  setHeader({ sub: phases.length ? `${phases[0].name} · Monat 1 von ${phases[0].months}` : "ohne Plan" });
+  refreshSheet();
+  body.scrollTo({ top: 0 });
+  toast("Plan gespeichert");
+  return true;
 }
 
 function renderWeightBody(body) {
+  if (ui.wizard) { body.innerHTML = wizardHTML(ui.wizard); return; }
   const f = fitness.getState();
   const today = todayKey();
   const entries = weightEntries(f);
@@ -203,7 +304,7 @@ function renderWeightBody(body) {
   const p = f.plan;
   const selDate = body.dataset.date && isDayKey(body.dataset.date) ? body.dataset.date : today;
   const existing = f.weights[selDate];
-  const cls = { on: "ok", slow: "warn", fast: "warn", nodata: "" }[course.state];
+  const cls = { on: "ok", slow: "warn", fast: "warn", nodata: "", noplan: "" }[course.state];
   const openAcc = [...body.querySelectorAll("details[open]")].map(d => d.dataset.acc);
 
   body.innerHTML = `
@@ -224,7 +325,7 @@ function renderWeightBody(body) {
       ${course.soll ? `<span class="meta">Ist Ø ${fmtKg(course.ref.avg, 2)} kg (KW ${isoWeek(course.ref.monday)}) · Soll ${fmtKg(course.soll.weight, 2)} kg</span>` : ""}</div>
     ${s ? `<div class="tags">
       <span><b>${s.kcalMin}–${s.kcalMax}</b> kcal</span><span><b>${s.proteinMin}–${s.proteinMax} g</b> Protein</span>
-      <span>Kreatin <b>${p.creatineG} g</b></span><span>Ziel <b>${s.targetWeight} kg</b> · ${esc(s.targetBf)} % KFA</span></div>` : ""}
+      ${p.creatineG ? `<span>Kreatin <b>${p.creatineG} g</b></span>` : ""}<span>Ziel <b>${s.targetWeight} kg</b>${s.targetBf ? ` · ${esc(s.targetBf)} % KFA` : ""}</span></div>` : ""}
 
     <div class="seg-row"><div class="seg" data-seg="wrange">${rangeButtons(ui.weightRange)}</div></div>
     <div class="chart-box"><canvas id="weightChart"></canvas></div>
@@ -245,8 +346,11 @@ function renderWeightBody(body) {
     </details>
 
     <details class="acc" data-acc="plan" ${openAcc.includes("plan") ? "open" : ""}>
-      <summary>Plan bearbeiten</summary>
-      <form class="acc-body" data-form="plan">${planFormHTML(p)}</form>
+      <summary>${planActive(p) ? "Plan bearbeiten" : "Plan einrichten"}</summary>
+      <div class="acc-body">
+        ${planActive(p) ? `<form data-form="plan">${planFormHTML(p)}</form>` : ""}
+        <button type="button" class="btn ${planActive(p) ? "ghost" : "primary"} block" data-wz-act="restart" style="margin-top:${planActive(p) ? 10 : 0}px">${planActive(p) ? "Plan neu einrichten" : "Ziel & Plan einrichten"}</button>
+      </div>
     </details>`;
 
   renderWeightChart(body.querySelector("#weightChart"), { entries, weekly, plan: f.plan, range: ui.weightRange, accent: getAccent() });
@@ -280,6 +384,32 @@ function planFormHTML(p) {
 }
 
 function bindWeight(body) {
+  body.addEventListener("input", e => {
+    const w = ui.wizard; if (!w) return;
+    const el = e.target;
+    if (el.dataset.wz) w[el.dataset.wz] = el.value;
+    else if (el.dataset.wzp) w.phases[+el.dataset.wzp][el.dataset.k] = el.value;
+  });
+  body.addEventListener("change", e => {
+    // Gewicht im Assistenten eingetragen und Phasen noch leer -> Vorschläge füllen
+    const w = ui.wizard;
+    if (w && e.target.dataset.wz === "weight" && parseNum(w.weight) && w.phases.every(p => !p.kcalMin)) { buildWizardPhases(w); refreshSheet(); }
+  });
+  body.addEventListener("click", e => {
+    const g = e.target.closest("[data-goal]");
+    if (g && ui.wizard) { ui.wizard.goal = g.dataset.goal; buildWizardPhases(ui.wizard); refreshSheet(); return; }
+    const a = e.target.closest("[data-wz-act]");
+    if (!a) return;
+    const act = a.dataset.wzAct;
+    if (act === "suggest") { if (!parseNum(ui.wizard.weight)) { flash(body.querySelector('[data-wz="weight"]')); return; } buildWizardPhases(ui.wizard); refreshSheet(); }
+    else if (act === "save") saveWizard(body);
+    else if (act === "skip") {
+      fitness.updatePlan({ configured: true, phases: [] });
+      ui.wizard = null; setHeader({ sub: "ohne Plan" }); refreshSheet();
+    } else if (act === "restart") {
+      ui.wizard = newWizard(fitness.getState()); setHeader({ sub: "Ziel einrichten" }); refreshSheet(); body.scrollTo({ top: 0 });
+    }
+  }, true);
   body.addEventListener("submit", e => {
     e.preventDefault();
     const form = e.target;

@@ -140,7 +140,13 @@ export function weeklyAverages(entries) {
 /* ---------------- Bulk/Cut-Plan ---------------- */
 
 /** Phasen mit konkreten Start-/Enddaten und Start-/Zielgewicht. */
+/** Hat der Nutzer einen Plan mit mindestens einer Phase eingerichtet? */
+export function planActive(plan) {
+  return !!(plan && plan.configured !== false && Array.isArray(plan.phases) && plan.phases.length && plan.startDate && Number.isFinite(+plan.startWeight));
+}
+
 export function planTimeline(plan) {
+  if (!planActive(plan)) return [];
   let start = plan.startDate;
   let fromWeight = plan.startWeight;
   return plan.phases.map(ph => {
@@ -193,6 +199,7 @@ export function courseStatus(f, today = todayKey()) {
   const reg = linearRegression(recent.map(w => ({ x: w.day, y: w.avg })));
   const rate = reg ? reg.slope * 7 : null;
 
+  if (!planActive(f.plan)) return { state: "noplan", ref, rate, title: "Kein Plan", text: "Ohne Plan zeigt die App nur deinen Verlauf. Unter „Plan“ kannst du Ziel, Kalorien und Protein festlegen." };
   if (!soll) return { state: "nodata", ref, rate, title: "Plan startet noch", text: "Plan-Startdatum liegt in der Zukunft." };
 
   const diff = ref.avg - soll.weight;

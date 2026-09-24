@@ -8,7 +8,7 @@
                              ({ name, description, input_schema })
    - callAction(name, a)  -> { ok: true, result } | { ok: false, error }
    Übungen/Vorlagen/Projekte dürfen per Name angesprochen werden
-   ("Chestpress", "Training 2", "Lehre") — Auflösung passiert hier.
+   ("Chestpress", "Training 2", "Uni") — Auflösung passiert hier.
    Keine UI-Logik hier drin; die App ruft dieselben Befehle auf.
    ============================================================ */
 import { fitness } from "./fitness/commands.js";
@@ -84,7 +84,7 @@ const P = {
   exercise: { type: "string", description: "Übungsname oder -ID, z.B. 'Chestpress'" },
   template: { type: "string", description: "Vorlage (Name oder Nummer, z.B. 'Training 2' oder '2'). Optional, wird sonst erraten." },
   set: { type: "integer", description: "Satznummer, beginnt bei 1" },
-  project: { type: "string", description: "Projektname, z.B. 'Lehre'" },
+  project: { type: "string", description: "Projektname (oder Teil davon)" },
 };
 
 /* ============================================================
@@ -280,7 +280,7 @@ def("projects_complete_task", {
   },
 });
 def("projects_set_goal", {
-  description: "Stand eines Spar-/Zahlenziels setzen, z.B. Moto-Fonds auf 1400 CHF.",
+  description: "Stand eines Spar-/Zahlenziels eines Projekts setzen, z.B. auf 1400 CHF.",
   params: { project: P.project, current: { type: "number", description: "Aktueller Stand" }, target: { type: "number", description: "Optional: neues Ziel" } },
   required: ["project", "current"],
   run: a => {

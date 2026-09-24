@@ -96,7 +96,7 @@ export function renderWeightChart(canvas, { entries, weekly, plan, range, accent
 
   // Soll-Linie: Fenster-Ränder + Phasen-Grenzen
   const planPts = [];
-  if (plan && plan.startDate) {
+  if (planTimeline(plan).length) {
     const xs = [win.min, win.max, ...planTimeline(plan).flatMap(s => [dayNum(s.start), dayNum(s.end)])]
       .filter(x => x >= win.min && x <= win.max && x >= dayNum(plan.startDate));
     [...new Set(xs)].sort((a, b) => a - b).forEach(x => {

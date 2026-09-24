@@ -18,23 +18,14 @@ const XP_TASK = 10, XP_SUB = 5, XP_GOAL = 50;
 function mkTask(name, subs = [], done = false) {
   return { id: uid("t"), name, done, subtasks: subs.map(text => ({ id: uid("s"), text, done: false })) };
 }
+/** Neue Nutzer bekommen nur ein neutrales Beispiel, das die Bedienung zeigt. */
 export function defaultProjects() {
   return [
-    { id: "p_lehre", title: "LEHRE", goal: null, tasks: [
-      mkTask("M106 · SQL/Datenbanken", ["MySQL Grundlagen", "Normalisierung", "DML/DDL/DCL", "Prüfung"]),
-      mkTask("M129 · Netzwerk", ["OSI-Modell", "TCP/IP", "Protokolltabellen", "Prüfung"]),
-      mkTask("M169 · Docker/Monitoring", ["Docker Compose Stack", "Prometheus/Grafana", "Security Bands H/I", "Prüfung"]),
-      mkTask("M188", ["Theorie", "Praxis", "Dokumentation", "Prüfung"]),
-      mkTask("M231 · Datenschutz", ["Cookies-Aufgabe", "Grundlagen Datenschutz", "Dokumentation", "Prüfung"]),
-      mkTask("M346 · IaC (Terraform/Ansible)", ["Terraform Setup", "Ansible Roles", "Multi-VM Deployment", "Prüfung"]),
-    ] },
-    { id: "p_moto", title: "MOTO-FONDS", goal: { target: 3000, current: 0, unit: "CHF", rewarded: false }, tasks: [
-      mkTask("Brixton BX 125 / Crossfire"), mkTask("CFMoto 125/300"),
-    ] },
-    { id: "p_roblox", title: "STEAL & ESCAPE", goal: null, tasks: [
-      mkTask("M1 · PlayerDataService", [], true), mkTask("M2 · LootService & InventoryService", [], true),
-      mkTask("M3 · EconomyService", [], true), mkTask("M4 · ExtractionService & CombatService", [], true),
-      mkTask("M5 · Minimal HUD mit echten Server-Daten"),
+    { id: uid("p"), title: "BEISPIEL-PROJEKT", goal: null, tasks: [
+      mkTask("Abhaken: auf das Kästchen links tippen"),
+      mkTask("Teilschritte: Knopf rechts öffnet sie", ["Erster Teilschritt", "Zweiter Teilschritt"]),
+      mkTask("Umbenennen: direkt auf den Text tippen"),
+      mkTask("Löschen oder Sparziel: unten „Projekt bearbeiten“"),
     ] },
   ];
 }

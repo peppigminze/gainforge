@@ -62,6 +62,12 @@ function seedTemplates() {
   ];
 }
 
+/** Leerer Plan für neue Nutzer: wird beim ersten Öffnen von „Gewicht“ eingerichtet. */
+export function emptyPlan() {
+  return { configured: false, startDate: todayKey(), startWeight: null, heightCm: null, creatineG: 0, phases: [] };
+}
+
+/** Plan aus der alten App-Version (nur für die Übernahme alter lokaler Daten). */
 export function defaultPlan(startDate = todayKey(), startWeight = 78.5) {
   return {
     startDate,
@@ -83,7 +89,7 @@ export function defaultFitness() {
     templates: seedTemplates(),
     workouts: {},
     weights: {},
-    plan: defaultPlan(),
+    plan: emptyPlan(),
     weeklyTarget: 2,
   };
 }
@@ -186,7 +192,8 @@ function sanitize(f) {
   f.templates = Array.isArray(f.templates) && f.templates.length ? f.templates : seedTemplates();
   f.workouts = f.workouts && typeof f.workouts === "object" ? f.workouts : {};
   f.weights = f.weights && typeof f.weights === "object" ? f.weights : {};
-  f.plan = f.plan || defaultPlan();
+  f.plan = f.plan && typeof f.plan === "object" ? f.plan : emptyPlan();
+  f.plan.phases = Array.isArray(f.plan.phases) ? f.plan.phases : [];
   f.weeklyTarget = f.weeklyTarget || 2;
 
   // Workout-Keys müssen exakt zu date + templateId passen (Schutz gegen verschobene Daten)

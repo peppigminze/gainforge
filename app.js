@@ -10,7 +10,7 @@
    ============================================================ */
 
 import { ensureFitness } from "./js/fitness/model.js";
-import { bindFitness, fitness } from "./js/fitness/commands.js";
+import { bindFitness, fitness, onFitnessChange } from "./js/fitness/commands.js";
 import { initFitnessUI, renderFitnessTiles, hudInfo, openTraining, openWeight, openProgress, openMuscles } from "./js/fitness/ui.js";
 import { weightEntries, weeklyAverages, courseStatus, plateauStatus, exerciseSeries, fmtSigned } from "./js/fitness/analytics.js";
 import { exerciseName, findTemplate } from "./js/fitness/model.js";
@@ -27,7 +27,7 @@ import { listActions, callAction, toolSchemas, bindActionUI } from "./js/actions
 import { cypher, initCypher } from "./js/cypher.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatShort, DOW_SHORT, weekday, isDayKey } from "./js/dates.js";
 
-const VERSION = "3.4";
+const VERSION = "3.5";
 const $ = id => document.getElementById(id);
 
 function defaultData() {
@@ -103,6 +103,9 @@ function renderAll() {
   else if (sid === "settings") refreshSheet();
   else if (sid) refreshSheet();
 }
+
+/* Fitness-Änderungen: Kopfzeile (Phase, Trainings) aktuell halten */
+onFitnessChange(() => renderHud());
 
 /* Projekte/Planer melden Änderungen */
 onChanged((scope, detail) => {
