@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// SILVAN.OS — jeder Nutzer darf ausschliesslich seine eigenen Daten
+// unter users/{seine uid}/… lesen und schreiben. Alles andere ist gesperrt.
+// Einfügen unter: Firebase Console → Firestore Database → Regeln → Veröffentlichen
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Nutzer-Dokument (Profil, XP, Projekte, Fitness-Einstellungen)
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Unterlisten: workouts, weights, calendar
+      match /{sub}/{docId} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid == uid
+                           && sub in ['workouts', 'weights', 'calendar'];
+      }
+    }
+  }
+}

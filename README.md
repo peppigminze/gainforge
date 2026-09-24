@@ -1,6 +1,6 @@
 # SILVAN.OS v3
 
-Persönliches Life-Dashboard im HUD/Terminal-Look. Installierbar als PWA, Daten lokal + optional Cloud-Sync über eine private GitHub Gist.
+Persönliches Life-Dashboard im HUD/Terminal-Look. Installierbar als PWA, Login und Daten über Firebase (funktioniert auch offline).
 
 ## Was neu ist (v3 · Fitness)
 
@@ -50,7 +50,7 @@ git push -u origin main
 2. Source: **Deploy from a branch** → Branch `main`, Ordner `/ (root)` → Save
 3. Nach ~1 Minute läuft es unter `https://DEIN-USERNAME.github.io/silvanos/`
 
-PWA-Installation (Homescreen) braucht HTTPS — GitHub Pages liefert das automatisch. Lokal über `file://` funktioniert der Service Worker nicht zuverlässig, über `localhost` schon.
+PWA-Installation (Homescreen) braucht HTTPS — GitHub Pages liefert das automatisch. Über `file://` startet die App nicht (ES-Module + Firebase), über `localhost` schon. Für lokales Testen `localhost` zusätzlich in Firebase unter *Authorized domains* eintragen (ist standardmässig drin).
 
 ## App aufs Handy installieren
 
@@ -59,25 +59,37 @@ PWA-Installation (Homescreen) braucht HTTPS — GitHub Pages liefert das automat
 
 Danach läuft SILVAN.OS wie eine native App (eigenes Icon, kein Browser-UI, funktioniert offline für die Oberfläche selbst).
 
-## Mehrere Konten / Login
+## Login & Daten (Firebase)
 
-Beim Start fragt SILVAN.OS nach einem Konto (E-Mail/Benutzername + Passwort). So können sich mehrere Personen dasselbe Gerät teilen, ohne sich die Daten zu vermischen — jedes Konto hat seine eigenen Fitness-/Projekt-/Kalenderdaten.
+SILVAN.OS nutzt **Firebase Authentication** (E-Mail/Passwort) und **Cloud Firestore**. Die E-Mail ist nur ein eindeutiger Login-Name: Sie muss nicht existieren, es wird nichts verschickt. Jeder Nutzer sieht ausschliesslich seine eigenen Daten. Der Login bleibt gespeichert wie bei einer normalen App.
 
-Wichtig: Es gibt keinen eigenen Server. Das Passwort schützt nur den Login-Bildschirm auf diesem Gerät (lokal geprüft per PBKDF2-Hash) — es wird nirgends hochgeladen und lässt sich bei Verlust nicht zurücksetzen, ausser durch Neuanlegen des Kontos. Damit ein Konto **geräteübergreifend** dieselben Daten zeigt, braucht jedes Konto beim ersten Verbinden auf einem neuen Gerät seinen eigenen GitHub-Token (s. Cloud Sync unten) — der Token identifiziert dabei die private Gist mit den echten Daten.
+- **Offline:** Firestore hat einen lokalen Cache. Änderungen ohne Netz werden gespeichert und automatisch hochgeladen. Die Anzeige oben neben dem Namen zeigt ✓ / SYNC / OFFLINE / FEHLER.
+- **Mehrere Geräte:** Änderungen erscheinen live auf allen eingeloggten Geräten.
+- **Erstes Login:** Liegen auf dem Gerät noch Daten der alten Version (lokale Konten / Gist-Sync), bietet die App an, sie zu übernehmen. Alternativ ein JSON-Backup importieren oder leer starten. Alte GitHub-Tokens werden dabei vom Gerät gelöscht.
+- **Passwort vergessen:** Da keine echte E-Mail nötig ist, geht Zurücksetzen per Mail nicht. In der Firebase Console unter *Authentication → Users* kann das Passwort neu gesetzt oder das Konto gelöscht werden.
 
-Bereits bestehende (Vor-Account-)Daten auf einem Gerät werden beim ersten Start automatisch als erstes Konto übernommen, nichts geht verloren.
+### Einrichtung (einmalig, schon erledigt für `silvanos-1e7a0`)
 
-## Geräteübergreifend synchronisieren (Cloud Sync)
+1. Firebase-Projekt anlegen, Web-App registrieren, Config in `js/firebase.js` eintragen
+2. *Authentication → Sign-in method* → **E-Mail/Passwort** aktivieren
+3. *Firestore Database* anlegen
+4. *Firestore → Regeln*: Inhalt von [`firestore.rules`](firestore.rules) einfügen → **Veröffentlichen**
+5. *Authentication → Settings → Authorized domains*: `peppigminze.github.io` hinzufügen
 
-Cloud Sync ist die Grundlage für Konten, die auf mehreren Geräten dieselben Daten zeigen sollen. Pro Konto einmal einrichten:
+### Datenmodell (Firestore)
 
-1. [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta) → **Generate new token**
-2. Permissions → Account permissions → **Gists: Read and write**
-3. Token generieren, kopieren
-4. Beim Verbinden eines neuen Kontos im Login-Bildschirm (oder danach in der App oben auf **EINRICHTEN**) → Token einfügen → **VERBINDEN**
-5. Auf jedem weiteren Gerät mit derselben E-Mail + demselben Token einloggen → App findet die Gist automatisch
+```
+users/{uid}                                 Profil + kleine Daten
+  schema, email, xp, projects[],
+  fitness { version, exercises[], templates[], plan{}, weeklyTarget }
+users/{uid}/workouts/{YYYY-MM-DD_<tplId>}   { date, templateId, sets{ <exId>: [{kg, reps}] }, updatedAt }
+users/{uid}/weights/{YYYY-MM-DD}            { date, kg }
+users/{uid}/calendar/{YYYY-MM-DD}           { date, tasks[{id, text, done}] }
+```
 
-Der Token bleibt nur in `localStorage` des jeweiligen Geräts (pro Konto separat) und geht ausschliesslich direkt an `api.github.com`. Änderungen synct die App automatisch (leicht verzögert, gebündelt). Ohne Verbindung läuft ein Konto rein lokal auf diesem Gerät; **EXPORT/IMPORT** unten bleibt zusätzlich als manuelles JSON-Backup.
+Die App hält alles in einem `data`-Objekt; `js/store.js` bildet es auf diese Dokumente ab und schreibt bei jeder Änderung nur die Dokumente, die sich geändert haben. Cypher kann später mit dem Firebase-SDK (oder Admin-SDK) direkt auf dieselben Pfade zugreifen.
+
+**EXPORT/IMPORT** unten bleibt als manuelles JSON-Backup.
 
 ## Struktur
 
@@ -85,8 +97,12 @@ Der Token bleibt nur in `localStorage` des jeweiligen Geräts (pro Konto separat
 silvanos/
 ├── index.html
 ├── style.css
-├── app.js                 # ES-Modul: Konten, Sync, Projekte, Kalender, Theme
+├── app.js                 # ES-Modul: Login-Ablauf, Projekte, Kalender, Theme
+├── firestore.rules        # Sicherheitsregeln (in Firebase Console einfügen)
 ├── js/
+│   ├── firebase.js        # Firebase-SDK + Config (einzige Stelle)
+│   ├── store.js           # data <-> Firestore-Dokumente, Diff-Speichern, Live-Updates
+│   ├── legacy.js          # alte lokale Daten für die Migration finden
 │   ├── dates.js           # zeitzonensichere Kalendertag-Logik
 │   └── fitness/
 │       ├── model.js       # Datenmodell, Migration, reine Mutationen
@@ -108,5 +124,5 @@ silvanos/
 
 - Übungen, Vorlagen und Bulk/Cut-Plan: direkt in der App (Fitness → „Übungen & Vorlagen verwalten“ bzw. „Bulk/Cut-Plan bearbeiten“)
 - Alle Fitness-Aktionen gibt es auch als Funktionen, z.B. in der Browser-Konsole: `SILVAN.fitness.logWeight("2026-09-24", 78.6)`
-- Standard-Inhalte der drei mitgelieferten Projekt-Panels: `defaultProjects()` in `app.js` — greift aber nur beim allerersten Start (danach übernimmt `localStorage`/die Gist)
+- Standard-Inhalte der Projekt-Panels: `defaultProjects()` in `app.js`. Greift nur bei einem neuen Konto ohne übernommene Daten.
 - Alles andere (Projekte, Aufgaben, Kalender) editierst du direkt in der laufenden App

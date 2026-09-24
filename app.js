@@ -1,28 +1,15 @@
 /* ============================================================
    SILVAN.OS — persönliches Life-Dashboard
-   Daten liegen lokal im Browser (localStorage), optional
-   gespiegelt in eine private GitHub Gist (Cloud Sync).
+   Login über Firebase Auth, Daten in Firestore (mit Offline-
+   Cache). Speicherschicht: js/store.js, Fitness: js/fitness/*.
    ============================================================ */
 
 import { ensureFitness } from "./js/fitness/model.js";
 import { bindFitness, fitness } from "./js/fitness/commands.js";
 import { initFitnessUI, renderFitness } from "./js/fitness/ui.js";
-
-const GIST_FILENAME = "silvanos-data.json";
-const GIST_DESCRIPTION = "SILVAN.OS data (do not rename the file inside)";
-
-/* multi-account: each account's data/token/gist live under its own key,
-   so several people can share one browser (or the same account can be
-   connected on several devices via its own GitHub token). */
-const ACCOUNTS_KEY = "silvanos_accounts_v1";
-const CURRENT_ACCOUNT_KEY = "silvanos_current_account";
-const LEGACY_STORAGE_KEY = "silvanos_data_v2";
-const LEGACY_SYNC_TOKEN_KEY = "silvanos_sync_token";
-const LEGACY_SYNC_GIST_KEY = "silvanos_sync_gistid";
-
-function accountDataKey(id) { return `silvanos_data_v2::${id}`; }
-function accountTokenKey(id) { return `silvanos_sync_token::${id}`; }
-function accountGistKey(id) { return `silvanos_sync_gistid::${id}`; }
+import { auth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "./js/firebase.js";
+import * as store from "./js/store.js";
+import { findLegacyDatasets, markClaimed, removeLegacyTokens } from "./js/legacy.js";
 
 function mkSub(names) {
   return names.map((n, i) => ({ id: "s" + i + "_" + Math.random().toString(36).slice(2, 6), text: n, done: false }));
@@ -86,32 +73,15 @@ function defaultData() {
   };
 }
 
-let currentAccountId = null;
+let currentUser = null; // Firebase-User, solange eingeloggt
 let data = defaultData();
 let weekOffset = 0;
 let selectedDate = todayStr();
 
-function loadData() {
-  if (!currentAccountId) return defaultData();
-  try {
-    const raw = localStorage.getItem(accountDataKey(currentAccountId));
-    if (!raw) return defaultData();
-    const parsed = JSON.parse(raw);
-    return { ...defaultData(), ...parsed };
-  } catch (e) {
-    console.error("Load error", e);
-    return defaultData();
-  }
-}
-
+/** Jede Änderung landet hier. store.js bündelt und schreibt nur geänderte Dokumente. */
 function saveData() {
-  if (!currentAccountId) return;
-  try {
-    localStorage.setItem(accountDataKey(currentAccountId), JSON.stringify(data));
-  } catch (e) {
-    console.error("Save error", e);
-  }
-  scheduleSync();
+  if (!currentUser || !store.isActive()) return;
+  store.queueSave();
 }
 
 /* ---------------- XP SYSTEM ---------------- */
@@ -543,6 +513,7 @@ document.getElementById("importInput").addEventListener("change", e => {
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
+      if (!confirm("Backup importieren? Deine aktuellen Cloud-Daten werden dadurch ersetzt.")) return;
       data = { ...defaultData(), ...parsed };
       saveData();
       renderAll();
@@ -551,397 +522,211 @@ document.getElementById("importInput").addEventListener("change", e => {
     }
   };
   reader.readAsText(file);
+  e.target.value = "";
 });
 
-/* ================= CLOUD SYNC (private GitHub Gist) ================= */
-let syncTimer = null;
-let syncInFlight = false;
+/* ================= LOGIN & SITZUNG (Firebase) =================
+   Ablauf: onAuthStateChanged meldet den eingeloggten Nutzer (auch
+   nach App-Neustart, Login bleibt gespeichert) -> enterUser()
+   lädt seine Daten aus Firestore. Gibt es noch kein Nutzer-
+   Dokument, ist es das erste Login -> Migrationsbildschirm.
+   ============================================================ */
+const $id = id => document.getElementById(id);
+let authMode = "login"; // "login" | "register"
 
-function getSyncToken() { return currentAccountId ? localStorage.getItem(accountTokenKey(currentAccountId)) : null; }
-function getGistId() { return currentAccountId ? localStorage.getItem(accountGistKey(currentAccountId)) : null; }
-function setGistId(id) { if (currentAccountId) localStorage.setItem(accountGistKey(currentAccountId), id); }
-
-function scheduleSync() {
-  if (!getSyncToken()) return;
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => pushToGist(), 1500);
-}
-
-function setSyncStatus(text, mode) {
-  const el = document.getElementById("syncStatus");
-  if (!el) return;
-  el.textContent = text;
-  el.classList.remove("connected", "error");
-  if (mode) el.classList.add(mode);
-}
-
-async function githubRequest(url, options = {}, tokenOverride) {
-  const token = tokenOverride || getSyncToken();
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Authorization": `token ${token}`,
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return res.json();
+const AUTH_ERRORS = {
+  "auth/invalid-credential": "E-Mail oder Passwort falsch.",
+  "auth/wrong-password": "E-Mail oder Passwort falsch.",
+  "auth/user-not-found": "E-Mail oder Passwort falsch.",
+  "auth/invalid-email": "Das ist keine gültige E-Mail-Form, z.B. name@silvanos.app.",
+  "auth/missing-password": "Bitte ein Passwort eingeben.",
+  "auth/weak-password": "Das Passwort braucht mindestens 6 Zeichen.",
+  "auth/email-already-in-use": "Für diese E-Mail gibt es schon ein Konto. Melde dich an.",
+  "auth/too-many-requests": "Zu viele Versuche. Warte kurz und versuch es nochmals.",
+  "auth/network-request-failed": "Keine Internetverbindung. Das erste Login braucht Netz.",
+  "permission-denied": "Firestore blockiert den Zugriff. Die Sicherheitsregeln sind noch nicht eingetragen.",
+  "unavailable": "Offline und noch keine Daten auf diesem Gerät. Bitte einmal mit Internet öffnen.",
+};
+function errorText(e) {
+  return AUTH_ERRORS[e && e.code] || (e && e.message) || "Unbekannter Fehler.";
 }
 
-async function findExistingGist(token) {
-  let page = 1;
-  while (page <= 5) {
-    const gists = await githubRequest(`https://api.github.com/gists?per_page=100&page=${page}`, {}, token);
-    if (!gists.length) break;
-    const match = gists.find(g => g.files && g.files[GIST_FILENAME]);
-    if (match) return match.id;
-    if (gists.length < 100) break;
-    page++;
-  }
-  return null;
+function showMsg(id, msg) {
+  const el = $id(id);
+  el.textContent = msg || "";
+  el.classList.toggle("hidden", !msg);
 }
 
-async function createGist(token, initialData) {
-  const gist = await githubRequest("https://api.github.com/gists", {
-    method: "POST",
-    body: JSON.stringify({
-      description: GIST_DESCRIPTION,
-      public: false,
-      files: { [GIST_FILENAME]: { content: JSON.stringify(initialData !== undefined ? initialData : data, null, 2) } },
-    }),
-  }, token);
-  return gist.id;
+function showScreen(which) {
+  $id("authScreen").classList.toggle("hidden", which !== "auth");
+  $id("migrateScreen").classList.toggle("hidden", which !== "migrate");
+  $id("app").classList.toggle("hidden", which !== "app");
 }
 
-async function pullFromGist(gistId, token) {
-  const gist = await githubRequest(`https://api.github.com/gists/${gistId}`, {}, token);
-  const file = gist.files && gist.files[GIST_FILENAME];
-  if (!file || !file.content) return null;
-  return JSON.parse(file.content);
-}
-
-async function pushToGist() {
-  const token = getSyncToken();
-  if (!token || syncInFlight) return;
-  syncInFlight = true;
-  setSyncStatus("synce...", null);
-  try {
-    let gistId = getGistId();
-    if (!gistId) {
-      gistId = await findExistingGist(token);
-      if (!gistId) gistId = await createGist(token);
-      setGistId(gistId);
-    }
-    await githubRequest(`https://api.github.com/gists/${gistId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify(data, null, 2) } } }),
-    }, token);
-    setSyncStatus("verbunden · zuletzt " + new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" }), "connected");
-  } catch (e) {
-    console.error("Sync push error", e);
-    setSyncStatus("Fehler beim Sync — Token prüfen", "error");
-  } finally {
-    syncInFlight = false;
-  }
-}
-
-async function initialSyncPull() {
-  const token = getSyncToken();
-  if (!token) { setSyncStatus("nicht verbunden", null); return; }
-  setSyncStatus("verbinde...", null);
-  try {
-    let gistId = getGistId();
-    if (!gistId) {
-      gistId = await findExistingGist(token);
-      if (gistId) setGistId(gistId);
-    }
-    if (gistId) {
-      const remote = await pullFromGist(gistId, token);
-      if (remote) data = { ...defaultData(), ...remote };
-    } else {
-      const newId = await createGist(token);
-      setGistId(newId);
-    }
-    setSyncStatus("verbunden · zuletzt " + new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" }), "connected");
-  } catch (e) {
-    console.error("Sync pull error", e);
-    setSyncStatus("Fehler beim Verbinden — Token prüfen", "error");
-  }
-}
-
-function connectSync(token) {
-  if (!currentAccountId) return Promise.resolve();
-  localStorage.setItem(accountTokenKey(currentAccountId), token.trim());
-  localStorage.removeItem(accountGistKey(currentAccountId));
-  return initialSyncPull().then(renderAll);
-}
-
-function disconnectSync() {
-  if (!currentAccountId) return;
-  localStorage.removeItem(accountTokenKey(currentAccountId));
-  localStorage.removeItem(accountGistKey(currentAccountId));
-  setSyncStatus("nicht verbunden", null);
-  document.getElementById("syncSetup").classList.add("hidden");
-  document.getElementById("syncDisconnectBtn").classList.add("hidden");
-}
-
-document.getElementById("syncToggleBtn").addEventListener("click", () => {
-  document.getElementById("syncSetup").classList.toggle("hidden");
-});
-document.getElementById("syncForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const input = document.getElementById("syncTokenInput");
-  const token = input.value.trim();
-  if (!token) return;
-  await connectSync(token);
-  input.value = "";
-  document.getElementById("syncSetup").classList.add("hidden");
-  document.getElementById("syncDisconnectBtn").classList.remove("hidden");
-});
-document.getElementById("syncDisconnectBtn").addEventListener("click", () => disconnectSync());
-
-/* ================= ACCOUNTS (multi-user login) =================
-   No backend: password only gates the login screen on this device.
-   Real cross-device continuity comes from each account's own GitHub
-   token pointing at its own private gist (same as Cloud Sync above).
-   ================================================================= */
-
-function loadAccounts() {
-  try {
-    const raw = localStorage.getItem(ACCOUNTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    console.error("loadAccounts error", e);
-    return [];
-  }
-}
-function saveAccounts(list) {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
-}
-function findAccountByEmail(email) {
-  return loadAccounts().find(a => a.email.toLowerCase() === email.toLowerCase());
-}
-function getCurrentAccountId() { return localStorage.getItem(CURRENT_ACCOUNT_KEY); }
-function setCurrentAccountId(id) {
-  currentAccountId = id;
-  if (id) localStorage.setItem(CURRENT_ACCOUNT_KEY, id);
-  else localStorage.removeItem(CURRENT_ACCOUNT_KEY);
-}
-function legacyDataExists() {
-  return !!(localStorage.getItem(LEGACY_STORAGE_KEY) || localStorage.getItem(LEGACY_SYNC_TOKEN_KEY));
-}
-
-function randomSaltB64() {
-  const arr = crypto.getRandomValues(new Uint8Array(16));
-  return btoa(String.fromCharCode(...arr));
-}
-async function derivePasswordHash(password, saltB64) {
-  const enc = new TextEncoder();
-  const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
-  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" },
-    keyMaterial,
-    256
-  );
-  return btoa(String.fromCharCode(...new Uint8Array(bits)));
-}
-async function createAccountRecord(email, password) {
-  const id = "acc_" + Math.random().toString(36).slice(2, 10);
-  const salt = randomSaltB64();
-  const hash = await derivePasswordHash(password, salt);
-  const accounts = loadAccounts();
-  accounts.push({ id, email, salt, hash });
-  saveAccounts(accounts);
-  return id;
-}
-async function verifyPassword(account, password) {
-  const hash = await derivePasswordHash(password, account.salt);
-  return hash === account.hash;
-}
-
-async function migrateLegacyData(email, password) {
-  const id = await createAccountRecord(email, password);
-  const legacyData = localStorage.getItem(LEGACY_STORAGE_KEY);
-  if (legacyData) localStorage.setItem(accountDataKey(id), legacyData);
-  const legacyToken = localStorage.getItem(LEGACY_SYNC_TOKEN_KEY);
-  if (legacyToken) localStorage.setItem(accountTokenKey(id), legacyToken);
-  const legacyGist = localStorage.getItem(LEGACY_SYNC_GIST_KEY);
-  if (legacyGist) localStorage.setItem(accountGistKey(id), legacyGist);
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
-  localStorage.removeItem(LEGACY_SYNC_TOKEN_KEY);
-  localStorage.removeItem(LEGACY_SYNC_GIST_KEY);
-  await enterAccount(id);
-}
-
-async function connectNewAccount(email, password, token) {
-  if (findAccountByEmail(email)) {
-    throw new Error("Diese E-Mail ist auf diesem Gerät schon verbunden — bitte anmelden statt neu verbinden.");
-  }
-  let gistId = await findExistingGist(token);
-  let remoteData;
-  if (gistId) {
-    remoteData = await pullFromGist(gistId, token);
-  } else {
-    remoteData = defaultData();
-    gistId = await createGist(token, remoteData);
-  }
-  const id = await createAccountRecord(email, password);
-  localStorage.setItem(accountTokenKey(id), token);
-  localStorage.setItem(accountGistKey(id), gistId);
-  localStorage.setItem(accountDataKey(id), JSON.stringify({ ...defaultData(), ...remoteData }));
-  await enterAccount(id);
-}
-
-async function enterAccount(id) {
-  setCurrentAccountId(id);
-  data = loadData();
-  document.getElementById("authScreen").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
-  const account = loadAccounts().find(a => a.id === id);
-  document.getElementById("currentUserLabel").textContent = account ? account.email.split("@")[0].toUpperCase() : "SILVAN";
-  if (getSyncToken()) {
-    document.getElementById("syncDisconnectBtn").classList.remove("hidden");
-    await initialSyncPull();
-  } else {
-    document.getElementById("syncDisconnectBtn").classList.add("hidden");
-    setSyncStatus("nicht verbunden", null);
-  }
-  renderAll();
-}
-
-function logout() {
-  setCurrentAccountId(null);
-  data = defaultData();
-  document.getElementById("app").classList.add("hidden");
-  showAuthScreen();
-}
-
-let authPendingAccount = null;
-
-function renderAuthAccountList() {
-  const listEl = document.getElementById("authAccountList");
-  listEl.innerHTML = "";
-  loadAccounts().forEach(acc => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "auth-account-btn";
-    btn.textContent = acc.email;
-    btn.addEventListener("click", () => showAuthPasswordStep(acc));
-    listEl.appendChild(btn);
-  });
-}
-
-function showAuthPasswordStep(account) {
-  authPendingAccount = account;
-  setAuthError(null);
-  document.getElementById("authPasswordEmail").textContent = account.email;
-  document.getElementById("authPasswordForm").classList.remove("hidden");
-  document.getElementById("authAccountList").classList.add("hidden");
-  document.getElementById("authConnectToggleBtn").classList.add("hidden");
-  document.getElementById("authConnectForm").classList.add("hidden");
-  document.getElementById("authPasswordInput").focus();
-}
-function hideAuthPasswordStep() {
-  authPendingAccount = null;
-  document.getElementById("authPasswordInput").value = "";
-  document.getElementById("authPasswordForm").classList.add("hidden");
-  document.getElementById("authAccountList").classList.remove("hidden");
-  document.getElementById("authConnectToggleBtn").classList.remove("hidden");
-}
-
-function setAuthError(msg) {
-  const el = document.getElementById("authError");
-  if (!msg) { el.classList.add("hidden"); el.textContent = ""; return; }
-  el.textContent = msg;
-  el.classList.remove("hidden");
-}
-function setAuthBusy(msg) {
-  const el = document.getElementById("authBusy");
-  if (!msg) { el.classList.add("hidden"); el.textContent = ""; return; }
-  el.textContent = msg;
-  el.classList.remove("hidden");
+function setAuthMode(mode) {
+  authMode = mode;
+  $id("authSubmit").textContent = mode === "login" ? "ANMELDEN" : "KONTO ERSTELLEN";
+  $id("authModeToggle").textContent = mode === "login" ? "Noch kein Konto? Konto erstellen" : "Schon ein Konto? Anmelden";
+  $id("authPassword").autocomplete = mode === "login" ? "current-password" : "new-password";
+  showMsg("authError", "");
 }
 
 function showAuthScreen() {
-  setAuthError(null);
-  setAuthBusy(null);
-  hideAuthPasswordStep();
-  document.getElementById("authConnectForm").classList.add("hidden");
-  renderAuthAccountList();
-  const migrate = legacyDataExists() && loadAccounts().length === 0;
-  document.getElementById("authMigrateForm").classList.toggle("hidden", !migrate);
-  document.getElementById("authMain").classList.toggle("hidden", migrate);
-  document.getElementById("authScreen").classList.remove("hidden");
+  setAuthMode(authMode);
+  showMsg("authBusy", "");
+  showScreen("auth");
 }
 
-document.getElementById("authMigrateForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const email = document.getElementById("migrateEmailInput").value.trim();
-  const password = document.getElementById("migratePasswordInput").value;
-  if (!email || !password) return;
-  setAuthError(null);
-  setAuthBusy("Konto wird angelegt…");
-  try {
-    await migrateLegacyData(email, password);
-  } catch (e) {
-    console.error("Migration error", e);
-    setAuthError("Fehler beim Anlegen des Kontos.");
-  } finally {
-    setAuthBusy(null);
-  }
-});
+$id("authModeToggle").addEventListener("click", () => setAuthMode(authMode === "login" ? "register" : "login"));
 
-document.getElementById("authPasswordForm").addEventListener("submit", async e => {
+$id("authForm").addEventListener("submit", async e => {
   e.preventDefault();
-  if (!authPendingAccount) return;
-  const password = document.getElementById("authPasswordInput").value;
-  const ok = await verifyPassword(authPendingAccount, password);
-  if (!ok) { setAuthError("Falsches Passwort."); return; }
-  const id = authPendingAccount.id;
-  hideAuthPasswordStep();
-  setAuthBusy("Anmelden…");
+  const email = $id("authEmail").value.trim().toLowerCase();
+  const password = $id("authPassword").value;
+  showMsg("authError", "");
+  showMsg("authBusy", authMode === "login" ? "Melde an…" : "Erstelle Konto…");
+  $id("authSubmit").disabled = true;
   try {
-    await enterAccount(id);
-  } finally {
-    setAuthBusy(null);
-  }
-});
-document.getElementById("authPasswordBackBtn").addEventListener("click", () => hideAuthPasswordStep());
-
-document.getElementById("authConnectToggleBtn").addEventListener("click", () => {
-  document.getElementById("authConnectForm").classList.toggle("hidden");
-});
-document.getElementById("authConnectForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const emailInput = document.getElementById("authEmailInput");
-  const passwordInput = document.getElementById("authNewPasswordInput");
-  const tokenInput = document.getElementById("authTokenInput");
-  const email = emailInput.value.trim();
-  const password = passwordInput.value;
-  const token = tokenInput.value.trim();
-  if (!email || !password || !token) return;
-  setAuthError(null);
-  setAuthBusy("Verbinde mit GitHub…");
-  try {
-    await connectNewAccount(email, password, token);
-    emailInput.value = "";
-    passwordInput.value = "";
-    tokenInput.value = "";
+    if (authMode === "login") await signInWithEmailAndPassword(auth, email, password);
+    else await createUserWithEmailAndPassword(auth, email, password);
+    $id("authPassword").value = "";
+    // weiter geht's in onAuthStateChanged -> enterUser()
   } catch (err) {
-    console.error("Connect account error", err);
-    setAuthError(err.message || "Verbindung fehlgeschlagen — Token prüfen.");
+    showMsg("authBusy", "");
+    showMsg("authError", errorText(err));
   } finally {
-    setAuthBusy(null);
+    $id("authSubmit").disabled = false;
   }
 });
 
-document.getElementById("logoutBtn").addEventListener("click", () => logout());
+/* ---------- Sync-Anzeige oben in der Statusleiste ---------- */
+const SYNC_LABELS = {
+  pending: ["…", "Änderung wird gespeichert"],
+  saving: ["SYNC", "Wird hochgeladen"],
+  saved: ["✓", "Alles gespeichert"],
+  offline: ["OFFLINE", "Offline gespeichert, wird automatisch hochgeladen"],
+  error: ["FEHLER", "Speichern fehlgeschlagen"],
+};
+function setSyncStatus(state, msg) {
+  const el = $id("syncStatus");
+  const [label, title] = SYNC_LABELS[state] || ["", ""];
+  el.textContent = label;
+  el.title = msg ? `${title}: ${msg}` : title;
+  el.dataset.state = state;
+}
+
+/* ---------- Live-Änderungen von anderen Geräten ---------- */
+let renderDeferred = false;
+function onRemoteChange() {
+  const active = document.activeElement;
+  const typing = active && $id("app").contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+  if (typing) { renderDeferred = true; return; } // nicht mitten im Tippen neu zeichnen
+  renderAll();
+}
+document.addEventListener("focusout", () => {
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (renderDeferred && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) { renderDeferred = false; renderAll(); }
+  }, 50);
+});
+
+async function enterUser(user) {
+  currentUser = user;
+  showScreen("auth");
+  showMsg("authError", "");
+  showMsg("authBusy", "Lade Daten…");
+  try {
+    const res = await store.openSession(user.uid, user.email, {
+      getData: () => data,
+      onRemoteChange,
+      onStatus: setSyncStatus,
+    });
+    if (!res.exists) { showMigrateScreen(); return; }
+    data = { ...defaultData(), ...res.data };
+    startApp();
+  } catch (err) {
+    console.error(err);
+    showMsg("authBusy", "");
+    showMsg("authError", errorText(err));
+  }
+}
+
+function startApp() {
+  $id("currentUserLabel").textContent = (currentUser.email || "").split("@")[0].toUpperCase() || "USER";
+  showScreen("app");
+  renderAll();
+  store.startLive();
+}
+
+/* ---------- Erstes Login: alte Daten übernehmen ---------- */
+let legacyCandidates = [];
+
+function showMigrateScreen() {
+  legacyCandidates = findLegacyDatasets();
+  showMsg("migrateError", "");
+  showMsg("migrateBusy", "");
+  $id("migrateIntro").textContent = legacyCandidates.length
+    ? "Dein Konto ist neu. Auf diesem Gerät liegen noch Daten aus der alten Version. Welche sollen übernommen werden?"
+    : "Dein Konto ist neu. Auf diesem Gerät wurden keine alten Daten gefunden. Du kannst ein JSON-Backup importieren oder leer starten.";
+  $id("migrateList").innerHTML = legacyCandidates.map((c, i) => {
+    const s = c.summary;
+    return `<button type="button" class="auth-account-btn migrate-btn" data-idx="${i}">
+      <b>${escapeAttr(c.label)}</b>
+      <span>${s.workouts} Trainings · ${s.weights} Gewichte · ${s.projects} Projekte · ${s.calendarDays} Kalendertage · ${s.xp} XP</span>
+    </button>`;
+  }).join("");
+  showScreen("migrate");
+}
+
+async function finishMigration(sourceData, legacyKey) {
+  showMsg("migrateError", "");
+  showMsg("migrateBusy", "Speichere in dein Konto…");
+  $id("migrateScreen").querySelectorAll("button, input").forEach(el => { el.disabled = true; });
+  try {
+    const fresh = { ...defaultData(), ...(sourceData || {}) };
+    ensureFitness(fresh); // Altformat -> Fitness v3
+    await store.createUserData(fresh);
+    if (legacyKey) markClaimed(legacyKey);
+    removeLegacyTokens(); // alte GitHub-Tokens vom Gerät löschen
+    data = fresh;
+    startApp();
+  } catch (err) {
+    console.error(err);
+    showMsg("migrateBusy", "");
+    showMsg("migrateError", errorText(err));
+  } finally {
+    $id("migrateScreen").querySelectorAll("button, input").forEach(el => { el.disabled = false; });
+  }
+}
+
+$id("migrateList").addEventListener("click", e => {
+  const btn = e.target.closest(".migrate-btn");
+  if (!btn) return;
+  const c = legacyCandidates[+btn.dataset.idx];
+  finishMigration(c.data, c.key);
+});
+$id("migrateSkip").addEventListener("click", () => {
+  if (legacyCandidates.length && !confirm("Wirklich leer starten? Die alten Daten bleiben auf dem Gerät, werden aber nicht übernommen.")) return;
+  finishMigration(null, null);
+});
+$id("migrateFile").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { finishMigration(JSON.parse(reader.result), null); }
+    catch (err) { showMsg("migrateError", "Die Datei ist kein gültiges SILVAN.OS-Backup."); }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+async function logout() {
+  if (!confirm("Abmelden?")) return;
+  await store.closeSession();
+  await signOut(auth);
+}
+$id("logoutBtn").addEventListener("click", () => logout());
 
 /* ================= COLOR THEME (presets + custom combos) =================
    Only 4 colors are user-facing (background, panel, accent, text) — the rest
@@ -1042,7 +827,7 @@ function applyTheme(theme) {
   accentHex = t.accent;
   accentRgbTriplet = t.accentRgb;
   drawScanlines();
-  if (currentAccountId) renderFitness();
+  if (currentUser && store.isActive()) renderFitness();
 }
 
 function loadTheme() {
@@ -1173,18 +958,21 @@ initFitnessUI({ getAccent: () => ({ hex: accentHex, rgb: accentRgbTriplet }) });
 window.SILVAN = Object.assign(window.SILVAN || {}, { fitness });
 
 /* ---------------- BOOT ---------------- */
-async function boot() {
+function boot() {
+  window.__silvanosBooted = true;
   initScanlines();
-  setTimeout(async () => {
-    document.getElementById("boot").classList.add("hidden");
-    const savedId = getCurrentAccountId();
-    const account = savedId && loadAccounts().find(a => a.id === savedId);
-    if (account) {
-      await enterAccount(account.id);
+  let first = true;
+  onAuthStateChanged(auth, async user => {
+    if (first) { first = false; $id("boot").classList.add("hidden"); }
+    if (user) {
+      await enterUser(user);
     } else {
+      currentUser = null;
+      await store.closeSession();
+      data = defaultData();
       showAuthScreen();
     }
-  }, 600);
+  });
 }
 
 boot();

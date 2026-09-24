@@ -23,47 +23,35 @@
 <canvas id="scanlines"></canvas>
 
 <div id="boot" class="boot">
-  <div class="boot-line">SILVAN.OS v2.0 — INITIALIZING<span class="cursor">_</span></div>
+  <div class="boot-line" id="bootLine">SILVAN.OS v3 — INITIALIZING<span class="cursor">_</span></div>
 </div>
 
-<!-- LOGIN / ACCOUNTS -->
+<!-- LOGIN (Firebase Auth) -->
 <div id="authScreen" class="authscreen hidden">
   <div class="auth-box">
     <div class="auth-title">SILVAN.OS<span class="cursor">_</span></div>
-
-    <!-- one-time: existing pre-account data found on this device -->
-    <form id="authMigrateForm" class="auth-step hidden">
-      <p class="auth-note">Bestehende lokale Daten gefunden. Leg ein Konto an, um sie zu behalten.</p>
-      <input type="email" id="migrateEmailInput" placeholder="E-Mail / Benutzername" required autocomplete="username">
-      <input type="password" id="migratePasswordInput" placeholder="Neues Passwort für dieses Gerät" required autocomplete="new-password">
-      <button type="submit">KONTO ANLEGEN</button>
+    <form id="authForm" class="auth-form" novalidate>
+      <input type="email" id="authEmail" placeholder="E-Mail" required autocomplete="username" autocapitalize="none" spellcheck="false">
+      <input type="password" id="authPassword" placeholder="Passwort" required autocomplete="current-password" minlength="6">
+      <button type="submit" id="authSubmit">ANMELDEN</button>
     </form>
-
-    <div id="authMain" class="auth-step hidden">
-      <div id="authAccountList" class="auth-account-list"></div>
-
-      <form id="authPasswordForm" class="auth-password-form hidden">
-        <p class="auth-sub" id="authPasswordEmail"></p>
-        <input type="password" id="authPasswordInput" placeholder="Passwort" required autocomplete="current-password">
-        <button type="submit">ANMELDEN</button>
-        <button type="button" class="auth-back" id="authPasswordBackBtn">‹ zurück</button>
-      </form>
-
-      <button class="auth-toggle" id="authConnectToggleBtn" type="button">+ NEUES / ANDERES KONTO VERBINDEN</button>
-      <form id="authConnectForm" class="auth-connect-form hidden">
-        <input type="email" id="authEmailInput" placeholder="E-Mail / Benutzername" required autocomplete="username">
-        <input type="password" id="authNewPasswordInput" placeholder="Passwort (für dieses Gerät)" required autocomplete="new-password">
-        <p class="sync-help">
-          <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">GitHub Personal Access Token</a>
-          (Fine-grained → <b>Gists: Read &amp; Write</b>, oder classic Token mit Scope <b>gist</b>) verbindet das Konto geräteübergreifend über eine private Gist.
-        </p>
-        <input type="password" id="authTokenInput" placeholder="GitHub Token (ghp_...)" required autocomplete="off">
-        <button type="submit">VERBINDEN</button>
-      </form>
-    </div>
-
+    <button type="button" class="auth-back" id="authModeToggle">Noch kein Konto? Konto erstellen</button>
+    <p class="auth-note">Die E-Mail ist nur dein Login-Name. Sie muss nicht existieren, es wird nichts verschickt. Passwort mindestens 6 Zeichen.</p>
     <p id="authError" class="auth-error hidden"></p>
     <p id="authBusy" class="auth-busy hidden"></p>
+  </div>
+</div>
+
+<!-- ERSTES LOGIN: alte Daten übernehmen -->
+<div id="migrateScreen" class="authscreen hidden">
+  <div class="auth-box">
+    <div class="auth-title">DATEN ÜBERNEHMEN<span class="cursor">_</span></div>
+    <p class="auth-note" id="migrateIntro"></p>
+    <div id="migrateList" class="auth-account-list"></div>
+    <label class="auth-toggle migrate-file">JSON-BACKUP IMPORTIEREN<input type="file" id="migrateFile" accept="application/json" hidden></label>
+    <button type="button" class="auth-back" id="migrateSkip">Leer starten</button>
+    <p id="migrateError" class="auth-error hidden"></p>
+    <p id="migrateBusy" class="auth-busy hidden"></p>
   </div>
 </div>
 
@@ -74,6 +62,7 @@
     <div class="status-id">
       <span class="status-tag">USER</span>
       <span class="status-value" id="currentUserLabel">SILVAN</span>
+      <span class="sync-badge" id="syncStatus" title="Cloud-Status">…</span>
       <button class="theme-toggle" id="themeToggleBtn" type="button" title="Farben anpassen">🎨</button>
       <button class="status-logout" id="logoutBtn" type="button" title="Abmelden">⏻</button>
     </div>
@@ -105,27 +94,6 @@
       <label>Panel <input type="color" id="themePanelColor"></label>
       <label>Akzent <input type="color" id="themeAccent"></label>
       <label>Text <input type="color" id="themeText"></label>
-    </div>
-  </section>
-
-  <!-- CLOUD SYNC -->
-  <section class="panel sync-panel" id="panel-sync">
-    <div class="sync-row">
-      <span class="status-tag">CLOUD SYNC</span>
-      <span class="sync-status" id="syncStatus">nicht verbunden</span>
-      <button class="sync-toggle" id="syncToggleBtn">EINRICHTEN</button>
-    </div>
-    <div class="sync-setup hidden" id="syncSetup">
-      <p class="sync-help">
-        Erstelle einen <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">GitHub Personal Access Token</a>
-        (Fine-grained, nur Berechtigung <b>Gists: Read & Write</b>, oder classic Token mit Scope <b>gist</b>).
-        Der Token wird nur lokal in deinem Browser gespeichert, nie irgendwo hochgeladen ausser direkt zu GitHub.
-      </p>
-      <form id="syncForm" class="inline-form sync-form">
-        <input type="password" id="syncTokenInput" placeholder="GitHub Token (ghp_...)">
-        <button type="submit">VERBINDEN</button>
-      </form>
-      <button class="sync-disconnect hidden" id="syncDisconnectBtn">TRENNEN</button>
     </div>
   </section>
 
@@ -268,12 +236,20 @@
   <footer class="footer">
     <button id="exportBtn">EXPORT DATA</button>
     <label class="import-label">IMPORT DATA<input type="file" id="importInput" accept="application/json" hidden></label>
-    <span class="footer-note">Daten lokal gespeichert · optional Cloud-Sync via GitHub Gist</span>
+    <span class="footer-note">Daten in Firebase gespeichert · funktioniert auch offline</span>
   </footer>
 
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script type="module" src="app.js"></script>
+<script>
+  // Falls Firebase nicht laden kann (erster Start ohne Internet), nicht ewig im Boot-Screen hängen.
+  setTimeout(function () {
+    if (window.__silvanosBooted) return;
+    var el = document.getElementById("bootLine");
+    if (el) el.insertAdjacentHTML("afterend", '<span class="boot-fail">Konnte nicht starten. Internet prüfen und App neu öffnen.</span>');
+  }, 12000);
+</script>
 </body>
 </html>
