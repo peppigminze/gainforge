@@ -27,7 +27,7 @@ import { listActions, callAction, toolSchemas, bindActionUI } from "./js/actions
 import { cypher, initCypher } from "./js/cypher.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatShort, DOW_SHORT, weekday, isDayKey } from "./js/dates.js";
 
-const VERSION = "3.5";
+const VERSION = "3.6";
 const $ = id => document.getElementById(id);
 
 function defaultData() {

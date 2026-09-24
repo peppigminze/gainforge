@@ -12,7 +12,7 @@
    Keine UI-Logik hier drin; die App ruft dieselben Befehle auf.
    ============================================================ */
 import { fitness } from "./fitness/commands.js";
-import { muscleSets, weekVolume, streak, records, MUSCLES } from "./fitness/gym.js";
+import { muscleSets, subSets, SUBS, weekVolume, streak, records, MUSCLES } from "./fitness/gym.js";
 import { findTemplate, exerciseName, validSets, workoutKey, workoutHasData, exerciseStatus, slotCount } from "./fitness/model.js";
 import { weightEntries, weeklyAverages, courseStatus, currentPhase, exerciseSeries, plateauStatus, previousPerformance } from "./fitness/analytics.js";
 import { projects, projectProgress } from "./projects.js";
@@ -143,7 +143,7 @@ def("fitness_exercise_history", {
   },
 });
 def("fitness_gym_stats", {
-  kind: "read", description: "Gym-Überblick diese Woche: Volumen (kg bewegt), Wochen-Streak, Sätze pro Muskelgruppe und die Bestwerte (PRs) pro Übung.",
+  kind: "read", description: "Gym-Überblick diese Woche: Volumen (kg bewegt), Wochen-Streak, Sätze pro Muskelgruppe und pro einzelnem Muskel (z.B. obere Brust, Trapez), Bestwerte (PRs) pro Übung.",
   run: () => {
     const f = fitness.getState();
     const m = mondayOf(todayKey());
@@ -151,6 +151,7 @@ def("fitness_gym_stats", {
     return {
       volume_kg: Math.round(weekVolume(f, m)), streak_weeks: streak(f).weeks,
       sets_per_muscle: Object.fromEntries(Object.entries(ms).map(([g, n]) => [MUSCLES[g], n])),
+      sets_per_single_muscle: Object.fromEntries(Object.entries(subSets(f, m, addDays(m, 6))).map(([k, v]) => [SUBS[k].label, +v.sets.toFixed(1)])),
       records: records(f).map(r => ({ exercise: r.name, best_e1rm_kg: +r.e1rm.toFixed(1), best_set: `${r.e1rmSet.kg ?? 0}×${r.e1rmSet.reps}`, date: r.e1rmDate })),
     };
   },

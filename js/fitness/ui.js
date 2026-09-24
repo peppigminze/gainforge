@@ -16,7 +16,7 @@ import {
   courseStatus, currentPhase, plannedWeightAt, fmtSigned, METRICS, planActive,
 } from "./analytics.js";
 import { renderWeightChart, renderExerciseChart, RANGES } from "./charts.js";
-import { MUSCLES, WEEKLY_SET_TARGET, muscleOf, muscleSets, weekVolume, volumeHistory, streak, priorBest, isPR, prSetIndex, records, bodySVG } from "./gym.js";
+import { MUSCLES, SUBS, SUB_TARGET, subSets, WEEKLY_SET_TARGET, muscleOf, muscleSets, weekVolume, volumeHistory, streak, priorBest, isPR, prSetIndex, records, bodySVG } from "./gym.js";
 import { e1rm } from "./analytics.js";
 import { openSheet, refreshSheet, currentSheetId, setHeader } from "../ui/sheet.js";
 import { sparkline, esc, toast, haptic, ICONS } from "../ui/fx.js";
@@ -146,7 +146,8 @@ export function renderFitnessTiles() {
   /* --- Muskeln (diese Woche) --- */
   const monday = mondayOf(today);
   const ms = muscleSets(f, monday, addDays(monday, 6));
-  const lv = Object.fromEntries(Object.entries(ms).map(([g, n]) => [g, n / WEEKLY_SET_TARGET]));
+  const ss = subSets(f, monday, addDays(monday, 6));
+  const lv = Object.fromEntries(Object.entries(ss).map(([k, v]) => [k, v.sets / SUB_TARGET]));
   const hit = Object.entries(ms).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
   const miss = Object.keys(MUSCLES).filter(g => ms[g] === 0);
   document.getElementById("tileMuscle").innerHTML = `
@@ -1053,39 +1054,76 @@ function flash(el) {
 }
 
 /* ============================================================
-   PANEL: MUSKELN
+   PANEL: MUSKELN (Übersicht + Detail pro Gruppe)
    ============================================================ */
-export function openMuscles() {
-  openSheet({ id: "muscles", cat: "Körper", title: "Muskeln", sub: "Harte Sätze pro Muskelgruppe", bind: bindMuscles, render: renderMuscles });
+export function openMuscles(group = null) {
+  ui.muscleFocus = group;
+  openSheet({ id: "muscles", cat: "Körper", title: "Muskeln", sub: "Harte Sätze pro Muskel", bind: bindMuscles, render: renderMuscles });
 }
+const fmtN = n => (Math.round(n * 10) / 10).toString();
+const stateCls = (n, target) => (n === 0 ? "st-bad" : n < target * 0.6 ? "st-warn" : "st-ok");
+
 function renderMuscles(body) {
   const f = fitness.getState();
   const today = todayKey();
   const weeks = ui.muscleWeeks || 1;
   const to = addDays(mondayOf(today), 6);
   const from = addDays(mondayOf(today), -7 * (weeks - 1));
-  const ms = muscleSets(f, from, to);
-  const perWeek = g => ms[g] / weeks;
-  const lv = Object.fromEntries(Object.keys(MUSCLES).map(g => [g, perWeek(g) / WEEKLY_SET_TARGET]));
-  const noMap = f.exercises.filter(e => !muscleOf(f, e.id));
+  const ss = subSets(f, from, to);
+  const gs = muscleSets(f, from, to);
+  const per = n => n / weeks;
+  const lv = Object.fromEntries(Object.entries(ss).map(([k, v]) => [k, per(v.sets) / SUB_TARGET]));
+  const focus = ui.muscleFocus;
+  const range = `<div class="seg"><button type="button" data-mw="1" class="${weeks === 1 ? "on" : ""}">Diese Woche</button><button type="button" data-mw="4" class="${weeks === 4 ? "on" : ""}">Ø 4 Wochen</button></div>`;
+  setHeader({ title: focus ? MUSCLES[focus] : "Muskeln", sub: focus ? `${fmtN(per(gs[focus]))} Sätze ${weeks === 1 ? "diese Woche" : "pro Woche"} · Richtwert ~${WEEKLY_SET_TARGET}` : "Tippe auf einen Muskel für Details" });
+
+  if (!focus) {
+    const noMap = f.exercises.filter(e => !muscleOf(f, e.id));
+    body.innerHTML = `${range}
+      <div class="bm-wrap tap">${bodySVG(lv)}</div>
+      <div class="psec">Gruppen ${weeks === 1 ? "diese Woche" : "pro Woche (Ø)"}</div>
+      <div class="rows">${Object.entries(MUSCLES).map(([g, label]) => {
+        const n = per(gs[g]);
+        const subs = Object.keys(SUBS).filter(k => SUBS[k].g === g);
+        const weak = subs.filter(k => per(ss[k].sets) < SUB_TARGET * 0.5).length;
+        return `<button type="button" class="r mus link-row" data-focus="${g}">
+          <span class="r-main">${label}${weak ? `<span class="r-sub st-warn">${weak} von ${subs.length} zu wenig</span>` : `<span class="r-sub">${subs.length} Muskeln ok</span>`}</span>
+          <span class="mus-bar"><i style="width:${Math.min(100, (n / WEEKLY_SET_TARGET) * 100)}%"></i></span>
+          <span class="r-val ${stateCls(n, WEEKLY_SET_TARGET)}">${fmtN(n)}</span><span class="chev">›</span></button>`;
+      }).join("")}</div>
+      <p class="hint">Richtwert: etwa ${WEEKLY_SET_TARGET} harte Sätze pro Gruppe und Woche. Übungen, die einen Muskel nur mittreffen (z.B. Trizeps bei Chestpress), zählen halb.</p>
+      ${noMap.length ? `<div class="callout warn"><b>Ohne Muskelgruppe</b>${noMap.map(e => esc(e.name)).join(", ")} · zuordnen unter Training → Vorlagen → Muskelgruppen</div>` : ""}`;
+    return;
+  }
+
+  const subs = Object.keys(SUBS).filter(k => SUBS[k].g === focus);
   body.innerHTML = `
-    <div class="seg"><button type="button" data-mw="1" class="${weeks === 1 ? "on" : ""}">Diese Woche</button><button type="button" data-mw="4" class="${weeks === 4 ? "on" : ""}">Ø 4 Wochen</button></div>
-    <div class="bm-wrap">${bodySVG(lv)}</div>
-    <div class="psec">Sätze ${weeks === 1 ? "diese Woche" : "pro Woche (Ø)"}</div>
-    <div class="rows">${Object.entries(MUSCLES).map(([g, label]) => {
-      const n = perWeek(g);
-      const pct = Math.min(100, (n / WEEKLY_SET_TARGET) * 100);
-      const cls = n === 0 ? "st-bad" : n < WEEKLY_SET_TARGET * 0.6 ? "st-warn" : "st-ok";
-      return `<div class="r mus"><span class="r-main">${label}</span>
-        <span class="mus-bar"><i style="width:${pct}%"></i></span>
-        <span class="r-val ${cls}">${fmtSets(Math.round(n * 10) / 10)}</span></div>`;
+    <button type="button" class="link back-link" data-focus="">‹ Alle Muskeln</button>
+    ${range}
+    <div class="bm-wrap zoom tap">${bodySVG(lv, { focus })}</div>
+    <div class="psec">Einzelne Muskeln</div>
+    <div class="subs-list">${subs.map((k, i) => {
+      const n = per(ss[k].sets);
+      const by = Object.entries(ss[k].by).sort((a, b) => b[1] - a[1]);
+      const cls = stateCls(n, SUB_TARGET);
+      return `<div class="sub-card">
+        <div class="sub-top"><span class="num">${i + 1}</span><b>${SUBS[k].label}</b>
+          <span class="r-val ${cls}">${fmtN(n)} <small>/ ~${SUB_TARGET}</small></span></div>
+        <span class="mus-bar"><i style="width:${Math.min(100, (n / SUB_TARGET) * 100)}%"></i></span>
+        <div class="sub-by">${by.length ? by.map(([id, x]) => `${esc(exerciseName(f, id))} <b>${fmtN(per(x))}</b>`).join(" · ") : "Noch nicht trainiert"}</div>
+        ${n < SUB_TARGET * 0.6 ? `<div class="sub-tip">Mehr davon: ${esc(SUBS[k].tip)}</div>` : ""}
+      </div>`;
     }).join("")}</div>
-    <p class="hint">Richtwert für Muskelaufbau: etwa ${WEEKLY_SET_TARGET} harte Sätze pro Muskel und Woche. Hilfsmuskeln zählen halb (z.B. Trizeps bei Chestpress). Zuordnung ändern: Training → Vorlagen → Muskelgruppen.</p>
-    ${noMap.length ? `<div class="callout warn"><b>Ohne Muskelgruppe</b>${noMap.map(e => esc(e.name)).join(", ")}</div>` : ""}`;
+    <p class="hint">Zahl = Sätze ${weeks === 1 ? "diese Woche" : "pro Woche im Schnitt"}. Hauptmuskel einer Übung zählt ganz, mitbeteiligte Muskeln halb. Richtwert pro einzelnem Muskel grob ~${SUB_TARGET}.</p>`;
 }
+
 function bindMuscles(body) {
   body.addEventListener("click", e => {
     const b = e.target.closest("[data-mw]");
-    if (b) { ui.muscleWeeks = +b.dataset.mw; refreshSheet(); }
+    if (b) { ui.muscleWeeks = +b.dataset.mw; refreshSheet(); return; }
+    const fcs = e.target.closest("[data-focus]");
+    if (fcs) { ui.muscleFocus = fcs.dataset.focus || null; refreshSheet(); body.scrollTo({ top: 0 }); return; }
+    const poly = e.target.closest(".bm-m");
+    if (poly) { ui.muscleFocus = poly.dataset.g; refreshSheet(); body.scrollTo({ top: 0 }); }
   });
 }

@@ -456,7 +456,7 @@ body.lock #cypherSlot{opacity:0;pointer-events:none}
 .bm-l{font:600 5.5px var(--fd);letter-spacing:.2em;fill:var(--dim);text-anchor:middle}
 .bm-wrap{max-width:360px;margin:14px auto 0;filter:drop-shadow(0 0 12px rgba(var(--c-rgb),.18))}
 .r.mus{gap:10px}
-.r.mus .r-main{flex:0 0 88px;cursor:default}
+.r.mus .r-main{flex:0 0 122px;min-width:0}
 .mus-bar{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden}
 .mus-bar i{display:block;height:100%;background:var(--c);box-shadow:0 0 8px var(--c)}
 .r-val.st-ok{color:var(--ok)} .r-val.st-warn{color:var(--warn)} .r-val.st-bad{color:var(--bad)}
@@ -488,3 +488,30 @@ body.lock #cypherSlot{opacity:0;pointer-events:none}
 
 .seg.wrap{flex-wrap:wrap}
 .seg.wrap button{flex:1 1 40%}
+
+/* Muskel-Detail */
+.bm-wrap.tap .bm-m{cursor:pointer}
+.bm-wrap.zoom{max-width:420px}
+.bodymap.zoom{max-height:300px}
+.bm-dim{opacity:.18}
+.bm-badge circle{fill:#02040a;stroke:var(--c);stroke-width:.4}
+.bm-badge text{fill:#fff;font-family:var(--fd);font-weight:700;text-anchor:middle;dominant-baseline:middle}
+.link-row{width:100%;background:none;border:0;border-bottom:1px solid rgba(150,200,255,.07);cursor:pointer;text-align:left;color:inherit;font:inherit}
+.link-row:last-child{border-bottom:0}
+.link-row .r-main{cursor:pointer}
+.chev{color:var(--dim);font-size:18px;margin-left:2px}
+.back-link{margin:0 0 8px;text-decoration:none;color:var(--c);font-size:13px}
+.subs-list{display:flex;flex-direction:column;gap:8px}
+.sub-card{padding:11px 12px;border-radius:11px;border:1px solid var(--edge);background:rgba(4,8,18,.55)}
+.sub-top{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.sub-top b{flex:1;font-weight:500;font-size:14px}
+.sub-top .num{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:50%;border:1px solid var(--c);font:700 11px var(--fd);color:#fff}
+.sub-top .r-val small{color:var(--dim);font-size:10.5px}
+.sub-card .mus-bar{display:block}
+.sub-by{margin-top:8px;font-size:12px;color:var(--mute);line-height:1.55}
+.sub-by b{color:#fff;font-weight:500}
+.sub-tip{margin-top:6px;font-size:12px;color:var(--warn)}
+.bm-views{display:grid;gap:10px;align-items:center}
+.bm-views.n2{grid-template-columns:1fr 1fr}
+.bm-views.n2 .bodymap.zoom{max-height:340px}
+.bm-views.n1 .bodymap.zoom{max-height:320px}
