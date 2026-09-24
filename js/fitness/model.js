@@ -46,19 +46,19 @@ const SEED_EXERCISES = [
   { id: "bauch_gerade", name: "Gerade Bauchmuskelmaschine" },
   { id: "bauch_seitlich", name: "Seitliche Bauchmuskelmaschine" },
 ];
-/* Ziel-Sätze pro Übung (in der App änderbar). */
-const SEED_SETS = {
-  chestpress: 2, schraegbank: 2, cable_h2l: 2, cable_l2h: 2, latzug: 3, rudern_eng: 3,
-  rudern_breit: 2, seitheben: 3, schulterpresse: 3, bizeps: 3, brachialis: 2, trizeps: 2,
-  bauch_gerade: 2, bauch_seitlich: 2,
-};
+/* Standard-Trainingsplan für neue Nutzer (Stand Silvans Plan, 24.09.2026).
+   Beide Vorlagen gleich, Schulterpresse ist in der Übungsliste, aber nicht im Plan. */
+const SEED_PLAN = [
+  ["chestpress", 2], ["schraegbank", 2], ["cable_h2l", 2], ["cable_l2h", 2],
+  ["latzug", 2], ["rudern_eng", 2], ["rudern_breit", 2], ["seitheben", 2],
+  ["bizeps", 2], ["brachialis", 1], ["trizeps", 2], ["bauch_gerade", 1], ["bauch_seitlich", 1],
+];
 
 function seedTemplates() {
-  const rest = SEED_EXERCISES.map(e => e.id).filter(id => id !== "chestpress" && id !== "schraegbank");
-  const item = exId => ({ exId, sets: SEED_SETS[exId] || 3 });
+  const items = () => SEED_PLAN.map(([exId, sets]) => ({ exId, sets }));
   return [
-    { id: "s1", name: "Training 1", items: ["schraegbank", "chestpress", ...rest].map(item) },
-    { id: "s2", name: "Training 2", items: ["chestpress", "schraegbank", ...rest].map(item) },
+    { id: "s1", name: "Training 1", items: items() },
+    { id: "s2", name: "Training 2", items: items() },
   ];
 }
 
