@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    Die Blase unten rechts ist reserviert und inaktiv, bis sich
    Cypher verbindet:
-     SILVAN.cypher.attach(async (text, api) => "Antwort", { name: "Cypher" })
+     GAINFORGE.cypher.attach(async (text, api) => "Antwort", { name: "Cypher" })
    api = { actions: listActions(), tools: toolSchemas(), call(name, args) }
    Der Handler bekommt den Text aus dem Chat und darf über api.call()
    jede Aktion aus js/actions.js ausführen. Details: docs/CYPHER.md

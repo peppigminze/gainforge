@@ -1,5 +1,5 @@
 /* ============================================================
-   SILVAN.OS — persönliches Life-Dashboard (NEXUS-Look)
+   GAINFORGE — Fitness + Life-Dashboard (NEXUS-Look)
    ------------------------------------------------------------
    app.js verbindet nur: Login/Migration, Kacheln, Panels,
    Einstellungen, Terminal-Befehle, Boot.
@@ -27,7 +27,7 @@ import { listActions, callAction, toolSchemas, bindActionUI } from "./js/actions
 import { cypher, initCypher } from "./js/cypher.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatShort, DOW_SHORT, weekday, isDayKey } from "./js/dates.js";
 
-const VERSION = "3.2";
+const VERSION = "3.3";
 const $ = id => document.getElementById(id);
 
 function defaultData() {
@@ -64,7 +64,7 @@ $("xpBtn").addEventListener("click", () => {
 
 /* ---------------- Akzentfarbe ---------------- */
 const ACCENTS = { cyan: "#00f0ff", mint: "#3dffb4", magenta: "#ff2bd6", amber: "#ffb547", lime: "#a8ff1a", violet: "#9d7bff" };
-const ACCENT_KEY = "silvanos_accent";
+const ACCENT_KEY = "gainforge_accent";
 let accent = { hex: ACCENTS.cyan, rgb: "0,240,255" };
 function applyAccent(name) {
   const hex = ACCENTS[name] || ACCENTS.cyan;
@@ -74,7 +74,7 @@ function applyAccent(name) {
   document.documentElement.style.setProperty("--c-rgb", accent.rgb);
   localStorage.setItem(ACCENT_KEY, accent.name);
 }
-applyAccent(localStorage.getItem(ACCENT_KEY) || "cyan");
+applyAccent(localStorage.getItem(ACCENT_KEY) || localStorage.getItem("silvanos_accent") || "cyan");
 
 /* ---------------- Rendern ---------------- */
 function renderHud() {
@@ -148,7 +148,7 @@ function openSettings() {
         </div>
         <div class="psec">Sitzung</div>
         <button type="button" class="btn danger block" data-set="logout">Abmelden</button>
-        <p class="hint" style="text-align:center;margin-top:18px">SILVAN.OS v${VERSION} · Terminal: Knopf &gt;_ oben</p>`;
+        <p class="hint" style="text-align:center;margin-top:18px">GAINFORGE v${VERSION} · Terminal: Knopf &gt;_ oben</p>`;
     },
     bind: body => {
       body.addEventListener("click", e => {
@@ -170,7 +170,7 @@ function exportData() {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `silvanos-backup-${todayKey()}.json`; a.click();
+  a.href = url; a.download = `gainforge-backup-${todayKey()}.json`; a.click();
   URL.revokeObjectURL(url);
 }
 function importData(input) {
@@ -197,7 +197,7 @@ const AUTH_ERRORS = {
   "auth/invalid-credential": "E-Mail oder Passwort falsch.",
   "auth/wrong-password": "E-Mail oder Passwort falsch.",
   "auth/user-not-found": "E-Mail oder Passwort falsch.",
-  "auth/invalid-email": "Das ist keine gültige E-Mail-Form, z.B. name@silvanos.app.",
+  "auth/invalid-email": "Das ist keine gültige E-Mail-Form, z.B. name@gainforge.app.",
   "auth/missing-password": "Bitte ein Passwort eingeben.",
   "auth/weak-password": "Das Passwort braucht mindestens 6 Zeichen.",
   "auth/email-already-in-use": "Für diese E-Mail gibt es schon ein Konto. Melde dich an.",
@@ -328,7 +328,7 @@ $("migrateFile").addEventListener("change", e => {
   const reader = new FileReader();
   reader.onload = () => {
     try { finishMigration(JSON.parse(reader.result), null); }
-    catch (err) { showMsg("migrateError", "Die Datei ist kein gültiges SILVAN.OS-Backup."); }
+    catch (err) { showMsg("migrateError", "Die Datei ist kein gültiges Backup."); }
   };
   reader.readAsText(file);
   e.target.value = "";
@@ -443,8 +443,9 @@ bindActionUI({
     else if (view === "home") closeSheet();
   },
 });
-// Konsole / später Cypher: SILVAN.fitness.logWeight("2026-09-24", 78.6) · SILVAN.run("status")
-window.SILVAN = Object.assign(window.SILVAN || {}, {
+// Konsole / Cypher: GAINFORGE.fitness.logWeight("2026-09-24", 78.6) · GAINFORGE.run("status")
+// window.SILVAN bleibt als alter Name erhalten, damit nichts bricht.
+window.GAINFORGE = window.SILVAN = Object.assign(window.GAINFORGE || {}, {
   fitness, projects, calendar, run: runCommand, cypher,
   actions: { list: listActions, call: callAction, tools: toolSchemas },
 });
@@ -460,11 +461,11 @@ if ("serviceWorker" in navigator) {
 
 /* ---------------- BOOT ---------------- */
 function boot() {
-  window.__silvanosBooted = true;
+  window.__gainforgeBooted = true;
   let resolveReady;
   const ready = new Promise(r => { resolveReady = r; });
   runBoot([
-    ["> kernel", "ok"],
+    ["> forge core", "ok"],
     ["> firebase uplink", "ok"],
     ["> fitness core", "ok"],
     ["> session", "…"],

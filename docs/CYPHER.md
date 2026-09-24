@@ -1,12 +1,12 @@
-# Cypher ↔ SILVAN.OS
+# Cypher ↔ GAINFORGE
 
-Diese Datei beschreibt, wie der Assistent **Cypher** mit SILVAN.OS spricht.
+Diese Datei beschreibt, wie der Assistent **Cypher** mit GAINFORGE spricht.
 Stand: v3.2 (Priorität 4, Cypher-Vorbereitung). Cypher selbst ist noch nicht gebaut.
 
 ## Überblick
 
 ```
-Sprache/Text ──► Cypher (LLM mit Tools) ──► SILVAN.actions.call(name, args) ──► Befehle ──► Firestore
+Sprache/Text ──► Cypher (LLM mit Tools) ──► GAINFORGE.actions.call(name, args) ──► Befehle ──► Firestore
                         ▲                                                        │
                         └──────────────── Ergebnis (JSON/Text) ◄─────────────────┘
 ```
@@ -21,7 +21,7 @@ keine Einträge in der Zukunft, XP-Vergabe, automatische Aufgaben-Erledigung usw
 In der App (oder aus einem Skript, das in der Seite läuft):
 
 ```js
-SILVAN.cypher.attach(async (text, api) => {
+GAINFORGE.cypher.attach(async (text, api) => {
   // api.tools   -> Tool-Definitionen im Format der Claude-API
   // api.call(name, args) -> { ok, result } | { ok: false, error }
   // Hier: Claude-API mit tools: api.tools aufrufen, tool_use-Blöcke
@@ -31,7 +31,7 @@ SILVAN.cypher.attach(async (text, api) => {
 ```
 
 Sobald `attach()` aufgerufen ist, wird die Blase unten rechts aktiv und öffnet einen Chat.
-`SILVAN.cypher.detach()` trennt wieder.
+`GAINFORGE.cypher.detach()` trennt wieder.
 
 **Tool-Loop (Pseudocode):**
 
@@ -53,7 +53,7 @@ for (;;) {
 
 Aktionen mit ⚠ löschen Daten. Cypher soll vorher nachfragen (steht auch in der Tool-Beschreibung).
 
-**API-Schlüssel:** Niemals in den Code von SILVAN.OS (öffentliches GitHub-Repo, GitHub Pages).
+**API-Schlüssel:** Niemals in den Code von GAINFORGE (öffentliches GitHub-Repo, GitHub Pages).
 Der Claude-Aufruf gehört in ein kleines Backend (Phase „Backend“ im Cypher-Plan), z.B.
 lokal auf dem PC (`personalJarvis`) oder eine Cloud Function, die nur eingeloggte Nutzer akzeptiert.
 
@@ -108,7 +108,7 @@ call fitness_log_weight {"kg":78.6,"date":"gestern"}
 call fitness_log_set {"exercise":"Chestpress","set":1,"kg":60,"reps":10}
 ```
 
-In der Browser-Konsole: `await SILVAN.actions.call("projects_list")`, `SILVAN.actions.tools()`.
+In der Browser-Konsole: `await GAINFORGE.actions.call("projects_list")`, `GAINFORGE.actions.tools()`.
 
 ## Datenstruktur (Firestore)
 
@@ -145,6 +145,6 @@ Regeln, die jede Schreibquelle einhalten muss:
 ## Nächste Schritte (Cypher-Plan)
 
 1. Kleines Backend mit dem Claude-API-Schlüssel (lokal oder Cloud Function), prüft das Firebase-ID-Token.
-2. Handler für `SILVAN.cypher.attach()`, der Text an das Backend schickt und den Tool-Loop ausführt.
+2. Handler für `GAINFORGE.cypher.attach()`, der Text an das Backend schickt und den Tool-Loop ausführt.
 3. Sprache: Web Speech API (Diktieren) in der Blase, danach TTS für Antworten.
 4. Optional: Morgen-Briefing aus `fitness_status` + `calendar_list` + `projects_list`.

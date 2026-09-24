@@ -1,4 +1,4 @@
-const CACHE_NAME = "silvanos-cache-v6";
+const CACHE_NAME = "gainforge-cache-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -25,6 +25,9 @@ const APP_SHELL = [
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
+  "./icons/apple-touch-icon.png",
+  "./icons/favicon-32.png",
+  "./icons/icon.svg",
 ];
 
 self.addEventListener("install", event => {
@@ -50,7 +53,7 @@ self.addEventListener("activate", event => {
 // Versionierte CDN-Dateien (Firebase-SDK, Chart.js) ändern sich nie ->
 // cache-first, damit die App auch offline startet. Firestore-/Auth-
 // Netzwerkaufrufe laufen NICHT durch den Service Worker.
-const CDN_CACHE = "silvanos-cdn-v1";
+const CDN_CACHE = "gainforge-cdn-v1";
 const CDN_HOSTS = ["www.gstatic.com", "cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("fetch", event => {

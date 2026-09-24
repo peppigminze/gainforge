@@ -3,16 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SILVAN.OS</title>
+<title>GAINFORGE</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#02040a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="SILVAN.OS">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="icon" href="icons/icon-192.png" type="image/png">
+<meta name="apple-mobile-web-app-title" content="GAINFORGE">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,7 +30,7 @@
 <!-- Boot-Sequenz -->
 <div id="boot">
   <div class="box">
-    <div class="ttl">SILVAN<span>.</span>OS</div>
+    <div class="ttl">GAIN<span>FORGE</span></div>
     <div id="bootLines"></div>
     <div class="prog"><i id="bootProg"></i></div>
     <div id="bootFail" class="boot-fail" hidden>Konnte nicht starten. Internet prüfen und App neu öffnen.</div>
@@ -39,7 +40,7 @@
 <!-- LOGIN -->
 <div id="authScreen" class="screen" hidden>
   <div class="screen-box glass">
-    <div class="brand big"><span class="logo"></span><span class="t">SILVAN<span>.</span>OS</span></div>
+    <div class="brand big"><span class="logo"></span><span class="t">GAIN<span>FORGE</span></span></div>
     <form id="authForm" class="stack" novalidate>
       <input type="email" id="authEmail" class="field" placeholder="E-Mail" required autocomplete="username" autocapitalize="none" spellcheck="false">
       <input type="password" id="authPassword" class="field" placeholder="Passwort" required autocomplete="current-password" minlength="6">
@@ -68,7 +69,7 @@
 <!-- APP -->
 <div id="app" hidden>
   <header id="top" class="glass">
-    <div class="brand"><span class="logo"></span><span class="t">SILVAN<span>.</span>OS</span></div>
+    <div class="brand"><span class="logo"></span><span class="t">GAIN<span>FORGE</span></span></div>
     <button type="button" class="xp" id="xpBtn" aria-label="Level und XP">
       <span class="xp-lvl">LVL <b id="level">1</b></span>
       <span class="xp-bar"><i id="xpBarFill"></i></span>
@@ -94,7 +95,7 @@
     <div id="projectTiles" class="tiles-sub"></div>
   </main>
 
-  <!-- Cypher: Sprach-/Chat-Blase. Inaktiv, bis sich Cypher über SILVAN.cypher.attach() verbindet (js/cypher.js) -->
+  <!-- Cypher: Sprach-/Chat-Blase. Inaktiv, bis sich Cypher über GAINFORGE.cypher.attach() verbindet (js/cypher.js) -->
   <button type="button" id="cypherSlot" data-state="offline" aria-label="Cypher (noch nicht verbunden)">
     <span class="cy-ring"></span><span class="cy-core"></span>
   </button>
@@ -122,7 +123,7 @@
 
 <!-- Terminal -->
 <section id="term" aria-label="Terminal" hidden>
-  <div class="thead"><span><i></i><i></i><i></i> SILVAN.OS // TERMINAL</span><button type="button" id="termClose" aria-label="Terminal schliessen">✕</button></div>
+  <div class="thead"><span><i></i><i></i><i></i> GAINFORGE // TERMINAL</span><button type="button" id="termClose" aria-label="Terminal schliessen">✕</button></div>
   <div id="tOut"></div>
   <form class="tin" id="tForm" autocomplete="off"><span class="pr">&gt;</span><input id="tIn" type="text" autocapitalize="none" spellcheck="false" enterkeyhint="send" aria-label="Befehl"></form>
 </section>
@@ -134,7 +135,7 @@
 <script>
   // Falls Firebase nicht laden kann (erster Start ohne Internet), nicht ewig im Boot-Screen hängen.
   setTimeout(function () {
-    if (window.__silvanosBooted) return;
+    if (window.__gainforgeBooted) return;
     var el = document.getElementById("bootFail");
     if (el) el.hidden = false;
   }, 12000);

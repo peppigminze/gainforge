@@ -11,7 +11,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 export async function runBoot(lines, ready) {
   const box = document.getElementById("bootLines");
   const prog = document.getElementById("bootProg");
-  const fast = reduced() || sessionStorage.getItem("silvanos_booted");
+  const fast = reduced() || sessionStorage.getItem("gainforge_booted");
   const total = lines.length;
   for (let i = 0; i < total; i++) {
     const [text, status] = lines[i];
@@ -28,7 +28,7 @@ export async function runBoot(lines, ready) {
   }
   await ready;
   prog.style.width = "100%";
-  sessionStorage.setItem("silvanos_booted", "1");
+  sessionStorage.setItem("gainforge_booted", "1");
   await sleep(fast ? 80 : 220);
   document.getElementById("boot").classList.add("done");
 }

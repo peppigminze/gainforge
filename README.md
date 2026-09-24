@@ -1,11 +1,16 @@
-# SILVAN.OS v3
+# GAINFORGE v3
 
 Persönliches Life-Dashboard im HUD/Terminal-Look. Installierbar als PWA, Login und Daten über Firebase (funktioniert auch offline).
 
+## Umbenennung (v3.3 · GAINFORGE)
+
+- Die App heisst jetzt **GAINFORGE** und hat ein neues Icon (`icons/icon.svg` als Quelle, PNGs in 180/192/512, maskable, Favicon).
+- Unverändert (absichtlich): Repo-Name `silvanos` (sonst ändert sich die URL und die installierte App bricht), Firebase-Projekt `silvanos-1e7a0`, alte `silvanos_*`-Speicherschlüssel für die Migration. `window.SILVAN` funktioniert weiter als Alias von `window.GAINFORGE`.
+
 ## Cypher-Vorbereitung (v3.2 · Priorität 4)
 
-- **Blase unten rechts** ist für Cypher reserviert (inaktiv). Verbindet sich Cypher über `SILVAN.cypher.attach(handler)`, wird sie aktiv und öffnet einen Chat.
-- **Aktionsregister** `js/actions.js`: 21 benannte Aktionen (lesen/schreiben) mit Parameter-Schema im Tool-Format der Claude-API. `SILVAN.actions.list()`, `.call(name, args)`, `.tools()`.
+- **Blase unten rechts** ist für Cypher reserviert (inaktiv). Verbindet sich Cypher über `GAINFORGE.cypher.attach(handler)`, wird sie aktiv und öffnet einen Chat.
+- **Aktionsregister** `js/actions.js`: 21 benannte Aktionen (lesen/schreiben) mit Parameter-Schema im Tool-Format der Claude-API. `GAINFORGE.actions.list()`, `.call(name, args)`, `.tools()`.
 - Terminal: `actions` listet alle, `call <aktion> {json}` führt eine aus.
 - Doku mit Datenstruktur und Anbindung: **[docs/CYPHER.md](docs/CYPHER.md)**.
 
@@ -53,7 +58,7 @@ dann `http://localhost:8000` öffnen.
 cd silvanos
 git init
 git add .
-git commit -m "SILVAN.OS v2"
+git commit -m "GAINFORGE v2"
 git branch -M main
 git remote add origin https://github.com/DEIN-USERNAME/silvanos.git
 git push -u origin main
@@ -72,11 +77,11 @@ PWA-Installation (Homescreen) braucht HTTPS — GitHub Pages liefert das automat
 - **Android/Chrome:** Seite öffnen → Menü (⋮) → "Zum Startbildschirm hinzufügen" / "App installieren"
 - **iOS/Safari:** Seite öffnen → Teilen-Icon → "Zum Home-Bildschirm"
 
-Danach läuft SILVAN.OS wie eine native App (eigenes Icon, kein Browser-UI, funktioniert offline für die Oberfläche selbst).
+Danach läuft GAINFORGE wie eine native App (eigenes Icon, kein Browser-UI, funktioniert offline für die Oberfläche selbst).
 
 ## Login & Daten (Firebase)
 
-SILVAN.OS nutzt **Firebase Authentication** (E-Mail/Passwort) und **Cloud Firestore**. Die E-Mail ist nur ein eindeutiger Login-Name: Sie muss nicht existieren, es wird nichts verschickt. Jeder Nutzer sieht ausschliesslich seine eigenen Daten. Der Login bleibt gespeichert wie bei einer normalen App.
+GAINFORGE nutzt **Firebase Authentication** (E-Mail/Passwort) und **Cloud Firestore**. Die E-Mail ist nur ein eindeutiger Login-Name: Sie muss nicht existieren, es wird nichts verschickt. Jeder Nutzer sieht ausschliesslich seine eigenen Daten. Der Login bleibt gespeichert wie bei einer normalen App.
 
 - **Offline:** Firestore hat einen lokalen Cache. Änderungen ohne Netz werden gespeichert und automatisch hochgeladen. Die Anzeige oben neben dem Namen zeigt ✓ / SYNC / OFFLINE / FEHLER.
 - **Mehrere Geräte:** Änderungen erscheinen live auf allen eingeloggten Geräten.
@@ -147,6 +152,6 @@ silvanos/
 ## Anpassen
 
 - Übungen, Vorlagen und Bulk/Cut-Plan: direkt in der App (Fitness → „Übungen & Vorlagen verwalten“ bzw. „Bulk/Cut-Plan bearbeiten“)
-- Alle Fitness-Aktionen gibt es auch als Funktionen, z.B. in der Browser-Konsole: `SILVAN.fitness.logWeight("2026-09-24", 78.6)`
+- Alle Fitness-Aktionen gibt es auch als Funktionen, z.B. in der Browser-Konsole: `GAINFORGE.fitness.logWeight("2026-09-24", 78.6)`
 - Standard-Inhalte der Projekt-Panels: `defaultProjects()` in `app.js`. Greift nur bei einem neuen Konto ohne übernommene Daten.
 - Alles andere (Projekte, Aufgaben, Kalender) editierst du direkt in der laufenden App

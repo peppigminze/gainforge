@@ -44,7 +44,7 @@ export function openTerminal() {
   const t = $("term");
   t.hidden = false;
   requestAnimationFrame(() => t.classList.add("open"));
-  if (!$("tOut").childElementCount) { io.acc("SILVAN.OS TERMINAL"); io.dim('Tipp "help" für alle Befehle.'); }
+  if (!$("tOut").childElementCount) { io.acc("GAINFORGE TERMINAL"); io.dim('Tipp "help" für alle Befehle.'); }
   setTimeout(() => $("tIn").focus(), 60);
 }
 export function closeTerminal() {

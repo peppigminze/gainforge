@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="46%" r="70%">
+      <stop offset="0" stop-color="#0b2230"/><stop offset=".55" stop-color="#050b16"/><stop offset="1" stop-color="#010207"/>
+    </radialGradient>
+    <radialGradient id="forge" cx="50%" cy="78%" r="45%">
+      <stop offset="0" stop-color="#ff7a1a" stop-opacity=".75"/><stop offset=".45" stop-color="#ff3d00" stop-opacity=".22"/><stop offset="1" stop-color="#ff3d00" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ember"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#ffb547"/><stop offset="1" stop-color="#ff5a00"/></radialGradient>
+    <linearGradient id="streak" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ffd27a"/><stop offset="1" stop-color="#ff5a00" stop-opacity="0"/></linearGradient>
+    <linearGradient id="gFill" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#eaffff"/><stop offset=".38" stop-color="#5ff8ff"/><stop offset="1" stop-color="#00b8d4"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00f0ff"/><stop offset=".55" stop-color="#9ffcff"/><stop offset=".8" stop-color="#ffd27a"/><stop offset="1" stop-color="#ff7a1a"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glowS" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="blur6"><feGaussianBlur stdDeviation="6"/></filter>
+    <clipPath id="clip"><rect width="512" height="512" rx="112"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <g stroke="#00f0ff" stroke-opacity=".07" stroke-width="1.5"><line x1="32" y1="0" x2="32" y2="512" /><line x1="80" y1="0" x2="80" y2="512" /><line x1="128" y1="0" x2="128" y2="512" /><line x1="176" y1="0" x2="176" y2="512" /><line x1="224" y1="0" x2="224" y2="512" /><line x1="272" y1="0" x2="272" y2="512" /><line x1="320" y1="0" x2="320" y2="512" /><line x1="368" y1="0" x2="368" y2="512" /><line x1="416" y1="0" x2="416" y2="512" /><line x1="464" y1="0" x2="464" y2="512" /><line x1="0" y1="32" x2="512" y2="32" /><line x1="0" y1="80" x2="512" y2="80" /><line x1="0" y1="128" x2="512" y2="128" /><line x1="0" y1="176" x2="512" y2="176" /><line x1="0" y1="224" x2="512" y2="224" /><line x1="0" y1="272" x2="512" y2="272" /><line x1="0" y1="320" x2="512" y2="320" /><line x1="0" y1="368" x2="512" y2="368" /><line x1="0" y1="416" x2="512" y2="416" /><line x1="0" y1="464" x2="512" y2="464" /></g>
+    <rect width="512" height="512" fill="url(#forge)"/>
+    
+      <g stroke="#00f0ff" stroke-width="5" fill="none" opacity=".75" filter="url(#glowS)">
+        <path d="M44 100V44h56"/><path d="M412 44h56v56"/><path d="M468 412v56h-56"/><path d="M100 468H44v-56"/>
+      </g>
+    <g transform="translate(256 256) scale(0.86) translate(-256 -256)">
+      <!-- Raute (NEXUS-Logo) -->
+      <path d="M256 40 L472 256 L256 472 L40 256 Z" fill="#00f0ff" fill-opacity=".04" stroke="#00f0ff" stroke-width="6" stroke-opacity=".9" filter="url(#glowS)"/>
+      <path d="M256 70 L442 256 L256 442 L70 256 Z" fill="none" stroke="#00f0ff" stroke-width="2" stroke-opacity=".35" stroke-dasharray="10 12"/>
+      <!-- Glut hinter dem G -->
+      <ellipse cx="300" cy="286" rx="90" ry="46" fill="#ff7a1a" opacity=".35" filter="url(#blur6)"/>
+      <!-- G: kantig, gefüllt -->
+      <g filter="url(#glow)">
+        <path d="M356 196 L316 156 L196 156 L156 196 L156 316 L196 356 L316 356 L356 316 L356 262 L262 262"
+              fill="none" stroke="url(#gFill)" stroke-width="42" stroke-linejoin="miter" stroke-linecap="butt"/>
+      </g>
+      <!-- Hantelstange als Querbalken, glüht zum Ende hin -->
+      <rect x="226" y="252" width="176" height="20" rx="3" fill="url(#hot)" filter="url(#glowS)"/>
+      <rect x="378" y="220" width="20" height="84" rx="4" fill="#ffb547" filter="url(#glowS)"/>
+      <rect x="402" y="232" width="12" height="60" rx="3" fill="#ff7a1a" filter="url(#glowS)"/>
+      <rect x="226" y="226" width="14" height="72" rx="3" fill="#b8fcff" filter="url(#glowS)"/>
+      <!-- Glanzkante -->
+      <path d="M196 156 L316 156" stroke="#ffffff" stroke-width="5" stroke-opacity=".85"/>
+    </g>
+    <line x1="362" y1="300" x2="410" y2="236" stroke="url(#streak)" stroke-width="3" stroke-linecap="round"/><line x1="150" y1="318" x2="108" y2="262" stroke="url(#streak)" stroke-width="3" stroke-linecap="round"/><line x1="330" y1="352" x2="384" y2="318" stroke="url(#streak)" stroke-width="3" stroke-linecap="round"/><line x1="186" y1="350" x2="140" y2="330" stroke="url(#streak)" stroke-width="3" stroke-linecap="round"/><line x1="372" y1="262" x2="418" y2="214" stroke="url(#streak)" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="203.1" cy="319.6" r="2.8" fill="url(#ember)" opacity="0.39"/><circle cx="266.8" cy="347.5" r="1.3" fill="url(#ember)" opacity="0.65"/><circle cx="117.2" cy="356.4" r="1.4" fill="url(#ember)" opacity="0.40"/><circle cx="233.4" cy="407.5" r="1.5" fill="url(#ember)" opacity="0.48"/><circle cx="294.2" cy="423.2" r="2.6" fill="url(#ember)" opacity="0.59"/><circle cx="398.9" cy="306.1" r="3.3" fill="url(#ember)" opacity="0.52"/><circle cx="149.3" cy="315.3" r="1.9" fill="url(#ember)" opacity="0.84"/><circle cx="160.2" cy="375.6" r="2.7" fill="url(#ember)" opacity="0.57"/><circle cx="270.3" cy="308.2" r="1.3" fill="url(#ember)" opacity="0.47"/><circle cx="310.1" cy="355.6" r="2.0" fill="url(#ember)" opacity="0.70"/><circle cx="242.0" cy="339.0" r="3.1" fill="url(#ember)" opacity="0.77"/><circle cx="179.2" cy="374.7" r="2.5" fill="url(#ember)" opacity="0.88"/><circle cx="324.8" cy="337.4" r="3.6" fill="url(#ember)" opacity="0.42"/><circle cx="231.4" cy="398.4" r="1.6" fill="url(#ember)" opacity="0.64"/><circle cx="117.8" cy="386.9" r="3.0" fill="url(#ember)" opacity="0.69"/><circle cx="368.6" cy="340.8" r="2.9" fill="url(#ember)" opacity="0.71"/>
+  </g>
+</svg>
