@@ -74,6 +74,7 @@ export function sparkline(values, { w = 120, h = 34 } = {}) {
 }
 
 export function ring(pct, size = 46) {
+  pct = Math.min(100, Math.max(0, pct || 0));
   const r = (size - 6) / 2, c = 2 * Math.PI * r, off = c * (1 - Math.min(1, Math.max(0, pct / 100)));
   return `<svg class="ring" viewBox="0 0 ${size} ${size}" aria-hidden="true">
     <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3"/>
@@ -83,3 +84,12 @@ export function ring(pct, size = 46) {
 }
 
 export const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/* ---------- Kachel-Icons (Linien-Stil, erben die Akzentfarbe) ---------- */
+const I = d => `<span class="t-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg></span>`;
+export const ICONS = {
+  training: I('<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>'),
+  weight: I('<rect x="3.5" y="4" width="17" height="16" rx="3"/><path d="M8.5 9.5a5 5 0 0 1 7 0M12 9.5l1.5-2"/>'),
+  progress: I('<path d="M3.5 17l5.5-5.5 4 4 7.5-8"/><path d="M15 7.5h5.5V13"/>'),
+  calendar: I('<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>'),
+};

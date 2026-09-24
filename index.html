@@ -94,8 +94,10 @@
     <div id="projectTiles" class="tiles-sub"></div>
   </main>
 
-  <!-- Reservierter Platz für Cypher (Priorität 4) -->
-  <div id="cypherSlot" aria-hidden="true"></div>
+  <!-- Cypher: Sprach-/Chat-Blase. Inaktiv, bis sich Cypher über SILVAN.cypher.attach() verbindet (js/cypher.js) -->
+  <button type="button" id="cypherSlot" data-state="offline" aria-label="Cypher (noch nicht verbunden)">
+    <span class="cy-ring"></span><span class="cy-core"></span>
+  </button>
 </div>
 
 <!-- Detail-Panel (Bottom-Sheet auf dem Handy, Seitenpanel am Desktop) -->

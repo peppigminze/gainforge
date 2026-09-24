@@ -6,7 +6,7 @@
    ============================================================ */
 import { ctx, changed, uid } from "./core.js";
 import { openSheet, refreshSheet, currentSheetId, setHeader } from "./ui/sheet.js";
-import { esc } from "./ui/fx.js";
+import { esc, ICONS } from "./ui/fx.js";
 import { todayKey, addDays, mondayOf, isoWeek, weekday, DOW_SHORT, DOW_LONG, formatShort, formatDate, isDayKey } from "./dates.js";
 
 const XP_TASK = 10;
@@ -62,10 +62,11 @@ export function renderTodayTile() {
   const late = overdue(today);
   const shown = [...open, ...tasks.filter(t => t.done)].slice(0, 3);
   document.getElementById("tileToday").innerHTML = `
+    ${ICONS.calendar}
     <span class="t-cat"><span class="dot"></span>Heute · ${DOW_SHORT[weekday(today)]} ${formatShort(today)}</span>
     ${shown.length
       ? `<ul class="t-list">${shown.map(t => `<li class="${t.done ? "done" : ""}">${esc(t.text)}</li>`).join("")}</ul>`
-      : `<span class="t-sub">Nichts geplant. Tippen, um Aufgaben hinzuzufügen.</span>`}
+      : `<span class="t-sub">Nichts geplant. Tippen, um Aufgaben einzutragen.</span>`}
     <span class="t-foot">
       <span>${open.length} offen · ${tasks.length - open.length} erledigt</span>
       ${late.length ? `<span class="t-state st-warn" style="margin-left:auto">${late.length} von früher</span>` : ""}

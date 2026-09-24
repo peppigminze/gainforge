@@ -2,6 +2,13 @@
 
 Persönliches Life-Dashboard im HUD/Terminal-Look. Installierbar als PWA, Login und Daten über Firebase (funktioniert auch offline).
 
+## Cypher-Vorbereitung (v3.2 · Priorität 4)
+
+- **Blase unten rechts** ist für Cypher reserviert (inaktiv). Verbindet sich Cypher über `SILVAN.cypher.attach(handler)`, wird sie aktiv und öffnet einen Chat.
+- **Aktionsregister** `js/actions.js`: 21 benannte Aktionen (lesen/schreiben) mit Parameter-Schema im Tool-Format der Claude-API. `SILVAN.actions.list()`, `.call(name, args)`, `.tools()`.
+- Terminal: `actions` listet alle, `call <aktion> {json}` führt eine aus.
+- Doku mit Datenstruktur und Anbindung: **[docs/CYPHER.md](docs/CYPHER.md)**.
+
 ## Was neu ist (v3.2 · NEXUS-Look)
 
 - **Neues Design** im Stil von NEXUS: Glass-Kacheln mit Neon-Kante, Orbitron + JetBrains Mono, Grid/Scanlines/Sweep im Hintergrund, Boot-Sequenz, Reticle beim Antippen. Akzentfarbe unter Einstellungen wählbar.
@@ -112,6 +119,8 @@ silvanos/
 │   ├── store.js           # data <-> Firestore-Dokumente, Diff-Speichern, Live-Updates
 │   ├── legacy.js          # alte lokale Daten für die Migration finden
 │   ├── core.js            # gemeinsamer Kontext (Daten, Speichern, XP, Änderungs-Events)
+│   ├── actions.js         # Aktionsregister für Cypher (Tool-Schemas, callAction)
+│   ├── cypher.js          # Cypher-Blase + Chat, attach()/detach()
 │   ├── projects.js        # Projekte: Befehle, Kacheln, Panel
 │   ├── calendar.js        # Tagesplaner: Befehle, Kachel, Panel
 │   ├── ui/

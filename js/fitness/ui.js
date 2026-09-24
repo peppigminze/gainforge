@@ -17,7 +17,7 @@ import {
 } from "./analytics.js";
 import { renderWeightChart, renderExerciseChart, RANGES } from "./charts.js";
 import { openSheet, refreshSheet, currentSheetId, setHeader } from "../ui/sheet.js";
-import { sparkline, esc, toast, haptic } from "../ui/fx.js";
+import { sparkline, esc, toast, haptic, ICONS } from "../ui/fx.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatLong, formatShort, formatDate, isDayKey, DOW_SHORT, weekday } from "../dates.js";
 
 const fmtKg = (n, d = 1) => (n == null ? "--.-" : n.toFixed(d));
@@ -95,8 +95,9 @@ export function renderFitnessTiles() {
   const last = Object.values(f.workouts).filter(workoutHasData).sort((a, b) => b.date.localeCompare(a.date))[0];
   const running = workoutHasData(todayW);
   document.getElementById("tileTraining").innerHTML = `
+    ${ICONS.training}
     <span class="t-cat"><span class="dot"></span>Training</span>
-    <span class="t-big">${count}<small>/ ${f.weeklyTarget} diese Woche</small></span>
+    <span class="t-big">${count}<small>von ${f.weeklyTarget} diese Woche</small></span>
     <span class="t-dots">${Array.from({ length: f.weeklyTarget }, (_, i) => `<i class="${i < count ? "on" : ""}"></i>`).join("")}</span>
     <span class="t-sub">${running ? `Heute läuft: ${esc(tpl.name)} · ${doneEx}/${tpl.items.length} Übungen` : `Als Nächstes: ${esc(tpl ? tpl.name : "–")}`}</span>
     <span class="t-foot">
@@ -113,9 +114,10 @@ export function renderFitnessTiles() {
   const stTxt = { on: "im Kurs", slow: "zu langsam", fast: "zu schnell", nodata: "keine Daten" }[course.state];
   const todayLogged = f.weights[today] != null;
   document.getElementById("tileWeight").innerHTML = `
+    ${ICONS.weight}
     <span class="t-cat">Gewicht</span>
     <span class="t-big">${ref ? fmtKg(ref.avg) : "--.-"}<small>kg</small></span>
-    <span class="t-sub">${ref ? `Ø KW ${isoWeek(ref.monday)}` : "Wochenschnitt"}</span>
+    <span class="t-sub">${ref ? `Wochenschnitt KW ${isoWeek(ref.monday)}` : "Wochenschnitt"}</span>
     <span class="t-foot">${todayLogged ? `<span class="t-state ${stCls}">${stTxt}</span>` : `<span class="t-state st-warn">heute wiegen</span>`}</span>
     ${sparkline(weekly.slice(-8).map(w => w.avg))}`;
 
@@ -125,10 +127,11 @@ export function renderFitnessTiles() {
   const stuck = ids.filter((id, i) => stats[i].status === "plateau" || stats[i].status === "decline");
   const progress = stats.filter(s => s.status === "progress").length;
   document.getElementById("tileProgress").innerHTML = `
-    <span class="t-cat">Fortschritt</span>
-    <span class="t-big">${progress}<small>/ ${ids.length} im Plus</small></span>
-    <span class="t-sub">${stuck.length ? esc(exerciseName(f, stuck[0])) + (stuck.length > 1 ? ` +${stuck.length - 1}` : "") : ids.length ? "Kein Plateau" : "Noch keine Daten"}</span>
-    <span class="t-foot">${stuck.length ? `<span class="t-state st-warn">${stuck.length} stockt</span>` : ids.length ? `<span class="t-state st-ok">Aufwärtstrend</span>` : ""}</span>`;
+    ${ICONS.progress}
+    <span class="t-cat">Kraft</span>
+    <span class="t-big">${progress}<small>von ${ids.length}</small></span>
+    <span class="t-sub">Übungen werden stärker</span>
+    <span class="t-foot">${stuck.length ? `<span class="t-state st-warn">Stockt: ${esc(exerciseName(f, stuck[0]))}${stuck.length > 1 ? ` +${stuck.length - 1}` : ""}</span>` : ids.length ? `<span class="t-state st-ok">kein Plateau</span>` : `<span>Noch keine Daten</span>`}</span>`;
 }
 
 function exerciseIdsWithData(f) {
@@ -384,7 +387,7 @@ function exerciseHTML(f, w, item) {
     <button type="button" class="ex-head" data-act="toggle-ex" aria-expanded="${open}">
       <span class="ex-mark">${st === "done" ? "✓" : st === "skipped" ? "–" : ""}</span>
       <span class="ex-txt"><span class="ex-name">${esc(exerciseName(f, item.exId))}</span><span class="ex-meta">${esc(exMeta(f, w, item, st))}</span></span>
-      <span class="ex-count">${st === "skipped" ? "" : `${logged}/${slots}`}</span>
+      <span class="ex-count">${st === "skipped" ? "" : `${logged}/${slots}<small>Sätze</small>`}</span>
     </button>
     ${open ? exerciseBodyHTML(f, w, item, st, slots) : ""}
   </div>`;
@@ -413,7 +416,7 @@ function exerciseBodyHTML(f, w, item, st, slots) {
   }
   return `
     <div class="ex-body">
-      ${prev ? `<div class="ex-last"><span>Zuletzt ${formatShort(prev.date)}: <b>${setsText(prev.sets)}</b></span>${canCopy ? `<button type="button" class="btn small" data-act="copy">Übernehmen</button>` : ""}</div>` : ""}
+      ${prev ? `<div class="ex-last"><span>Zuletzt ${formatShort(prev.date)}: <b>${setsText(prev.sets)}</b></span>${canCopy ? `<button type="button" class="btn small" data-act="copy">Werte übernehmen</button>` : ""}</div>` : ""}
       ${slots ? `<div class="set-lbl"><span>#</span><span>KG</span><span></span><span>WDH</span><span></span></div>` : ""}
       ${rows.join("")}
       <div class="ex-actions">
@@ -440,7 +443,7 @@ function refreshExerciseHead(exId, maybeAdvance) {
   el.dataset.st = st;
   el.style.setProperty("--p", `${slots ? (logged / slots) * 100 : 0}%`);
   el.querySelector(".ex-mark").textContent = st === "done" ? "✓" : "";
-  el.querySelector(".ex-count").textContent = `${logged}/${slots}`;
+  el.querySelector(".ex-count").innerHTML = `${logged}/${slots}<small>Sätze</small>`;
   el.querySelector(".ex-meta").textContent = exMeta(f, w, item, st);
   el.querySelectorAll(".set").forEach(row => {
     const s = w && w.sets[exId] ? w.sets[exId][+row.dataset.idx] : null;

@@ -23,6 +23,8 @@ import { calendar, renderTodayTile, openCalendar, refreshCalendarSheet } from ".
 import { openSheet, closeSheet, currentSheetId, refreshSheet } from "./js/ui/sheet.js";
 import { runBoot, initReticle, toast, esc } from "./js/ui/fx.js";
 import { registerCommand, runCommand, openTerminal, closeTerminal } from "./js/ui/terminal.js";
+import { listActions, callAction, toolSchemas, bindActionUI } from "./js/actions.js";
+import { cypher, initCypher } from "./js/cypher.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatShort, DOW_SHORT, weekday, isDayKey } from "./js/dates.js";
 
 const VERSION = "3.2";
@@ -78,7 +80,7 @@ applyAccent(localStorage.getItem(ACCENT_KEY) || "cyan");
 function renderHud() {
   const t = todayKey();
   const h = hudInfo();
-  $("hudLine").innerHTML = `${DOW_SHORT[weekday(t)]} ${formatShort(t)} · KW ${isoWeek(t)}${h.phase ? ` · <b>${esc(h.phase)}</b>` : ""} · ${esc(h.week)}`;
+  $("hudLine").innerHTML = `${DOW_SHORT[weekday(t)]} ${formatShort(t)} · KW ${isoWeek(t)}${h.phase ? ` · <b>${esc(h.phase)}</b>` : ""}`;
 }
 
 function renderTiles() {
@@ -406,6 +408,21 @@ registerCommand("theme", {
   run: ([n], io) => { if (!ACCENTS[n]) throw new Error("Farben: " + Object.keys(ACCENTS).join(", ")); applyAccent(n); renderTiles(); io.ok(`✓ Akzent: ${n}`); },
 });
 registerCommand("sync", { help: "Cloud-Status", run: (_, io) => io.print($("syncStatus").title || "–") });
+registerCommand("actions", {
+  help: "alle Aktionen für Cypher",
+  run: (_, io) => listActions().forEach(a => io.print(`${a.kind === "read" ? "R" : "W"}${a.destructive ? "!" : " "} ${a.name}`, a.kind === "read" ? "dim" : "")),
+});
+registerCommand("call", {
+  usage: "call <aktion> [json]", help: 'Aktion ausführen, z.B. call fitness_log_weight {"kg":78.6}',
+  run: async ([name, ...rest], io) => {
+    if (!name) throw new Error("Beispiel: call fitness_status");
+    let args = {};
+    if (rest.length) { try { args = JSON.parse(rest.join(" ")); } catch { throw new Error("Parameter müssen JSON sein, z.B. {\"kg\":78.6}"); } }
+    const r = await callAction(name, args);
+    if (!r.ok) { io.err(r.error); return; }
+    io.ok(typeof r.result === "string" ? r.result : JSON.stringify(r.result, null, 2));
+  },
+});
 registerCommand("logout", { help: "abmelden", run: (_, io) => { io.close(); logout(); } });
 
 /* ---------------- Module anbinden ---------------- */
@@ -413,8 +430,24 @@ bindCore({ getData: () => data, save: saveData, addXP });
 bindFitness({ getData: () => data, save: saveData, addXP });
 initFitnessUI({ getAccent: () => accent });
 initReticle();
+initCypher();
+bindActionUI({
+  open: (view, extra = {}) => {
+    closeTerminal();
+    if (view === "training") openTraining();
+    else if (view === "weight") openWeight();
+    else if (view === "progress") openProgress();
+    else if (view === "calendar") openCalendar();
+    else if (view === "settings") openSettings();
+    else if (view === "project") openProject(extra.id);
+    else if (view === "home") closeSheet();
+  },
+});
 // Konsole / später Cypher: SILVAN.fitness.logWeight("2026-09-24", 78.6) · SILVAN.run("status")
-window.SILVAN = Object.assign(window.SILVAN || {}, { fitness, projects, calendar, run: runCommand });
+window.SILVAN = Object.assign(window.SILVAN || {}, {
+  fitness, projects, calendar, run: runCommand, cypher,
+  actions: { list: listActions, call: callAction, tools: toolSchemas },
+});
 
 /* ---------------- PWA ---------------- */
 if ("serviceWorker" in navigator) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "silvanos-cache-v5";
+const CACHE_NAME = "silvanos-cache-v6";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -9,6 +9,8 @@ const APP_SHELL = [
   "./js/store.js",
   "./js/legacy.js",
   "./js/core.js",
+  "./js/actions.js",
+  "./js/cypher.js",
   "./js/projects.js",
   "./js/calendar.js",
   "./js/ui/sheet.js",
