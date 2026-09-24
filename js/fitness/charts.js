@@ -22,9 +22,9 @@ function theme(accent) {
   return {
     accent: accent.hex,
     accentA: a => `rgba(${accent.rgb},${a})`,
-    amber: cssVar("--amber", "#E0A64C"),
-    muted: cssVar("--text-muted", "#6B7785"),
-    grid: cssVar("--panel-border", "#232C38"),
+    amber: cssVar("--warn", "#ffb547"),
+    muted: "rgba(200,215,245,.55)",
+    grid: "rgba(150,200,255,.07)",
   };
 }
 
@@ -55,8 +55,8 @@ function baseOptions(t, win, yTitle) {
     animation: { duration: 250 },
     interaction: { mode: "nearest", intersect: false, axis: "x" },
     plugins: {
-      legend: { display: true, position: "bottom", labels: { color: t.muted, font: tickFont, boxWidth: 10, boxHeight: 10, usePointStyle: true } },
-      tooltip: { backgroundColor: "rgba(10,14,20,0.95)", borderColor: t.grid, borderWidth: 1, titleFont: tickFont, bodyFont: tickFont, padding: 10 },
+      legend: { display: true, position: "bottom", labels: { color: t.muted, font: tickFont, boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 12 } },
+      tooltip: { backgroundColor: "rgba(4,8,18,0.95)", borderColor: t.accentA(0.4), borderWidth: 1, titleFont: tickFont, bodyFont: tickFont, padding: 10 },
     },
     scales: {
       x: {

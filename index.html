@@ -2,11 +2,11 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SILVAN.OS</title>
 
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0A0E14">
+<meta name="theme-color" content="#02040a">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -15,231 +15,117 @@
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<canvas id="scanlines"></canvas>
+<!-- Atmosphäre: Grid, Scanlines, Sweep, Ecken-Rahmen (reines CSS, GPU-schonend) -->
+<div id="fx" aria-hidden="true"><div class="sweep"></div></div>
+<div class="frame tl" aria-hidden="true"></div><div class="frame tr" aria-hidden="true"></div>
+<div class="frame bl" aria-hidden="true"></div><div class="frame br" aria-hidden="true"></div>
 
-<div id="boot" class="boot">
-  <div class="boot-line" id="bootLine">SILVAN.OS v3 — INITIALIZING<span class="cursor">_</span></div>
+<!-- Boot-Sequenz -->
+<div id="boot">
+  <div class="box">
+    <div class="ttl">SILVAN<span>.</span>OS</div>
+    <div id="bootLines"></div>
+    <div class="prog"><i id="bootProg"></i></div>
+    <div id="bootFail" class="boot-fail" hidden>Konnte nicht starten. Internet prüfen und App neu öffnen.</div>
+  </div>
 </div>
 
-<!-- LOGIN (Firebase Auth) -->
-<div id="authScreen" class="authscreen hidden">
-  <div class="auth-box">
-    <div class="auth-title">SILVAN.OS<span class="cursor">_</span></div>
-    <form id="authForm" class="auth-form" novalidate>
-      <input type="email" id="authEmail" placeholder="E-Mail" required autocomplete="username" autocapitalize="none" spellcheck="false">
-      <input type="password" id="authPassword" placeholder="Passwort" required autocomplete="current-password" minlength="6">
-      <button type="submit" id="authSubmit">ANMELDEN</button>
+<!-- LOGIN -->
+<div id="authScreen" class="screen" hidden>
+  <div class="screen-box glass">
+    <div class="brand big"><span class="logo"></span><span class="t">SILVAN<span>.</span>OS</span></div>
+    <form id="authForm" class="stack" novalidate>
+      <input type="email" id="authEmail" class="field" placeholder="E-Mail" required autocomplete="username" autocapitalize="none" spellcheck="false">
+      <input type="password" id="authPassword" class="field" placeholder="Passwort" required autocomplete="current-password" minlength="6">
+      <button type="submit" id="authSubmit" class="btn primary">Anmelden</button>
     </form>
-    <button type="button" class="auth-back" id="authModeToggle">Noch kein Konto? Konto erstellen</button>
-    <p class="auth-note">Die E-Mail ist nur dein Login-Name. Sie muss nicht existieren, es wird nichts verschickt. Passwort mindestens 6 Zeichen.</p>
-    <p id="authError" class="auth-error hidden"></p>
-    <p id="authBusy" class="auth-busy hidden"></p>
+    <button type="button" class="link" id="authModeToggle">Noch kein Konto? Konto erstellen</button>
+    <p class="note">Die E-Mail ist nur dein Login-Name. Sie muss nicht existieren, es wird nichts verschickt. Passwort mindestens 6 Zeichen.</p>
+    <p id="authError" class="msg err" hidden></p>
+    <p id="authBusy" class="msg" hidden></p>
   </div>
 </div>
 
 <!-- ERSTES LOGIN: alte Daten übernehmen -->
-<div id="migrateScreen" class="authscreen hidden">
-  <div class="auth-box">
-    <div class="auth-title">DATEN ÜBERNEHMEN<span class="cursor">_</span></div>
-    <p class="auth-note" id="migrateIntro"></p>
-    <div id="migrateList" class="auth-account-list"></div>
-    <label class="auth-toggle migrate-file">JSON-BACKUP IMPORTIEREN<input type="file" id="migrateFile" accept="application/json" hidden></label>
-    <button type="button" class="auth-back" id="migrateSkip">Leer starten</button>
-    <p id="migrateError" class="auth-error hidden"></p>
-    <p id="migrateBusy" class="auth-busy hidden"></p>
+<div id="migrateScreen" class="screen" hidden>
+  <div class="screen-box glass">
+    <div class="sec-title">Daten übernehmen</div>
+    <p class="note" id="migrateIntro"></p>
+    <div id="migrateList" class="stack"></div>
+    <label class="btn ghost block">JSON-Backup importieren<input type="file" id="migrateFile" accept="application/json" hidden></label>
+    <button type="button" class="link" id="migrateSkip">Leer starten</button>
+    <p id="migrateError" class="msg err" hidden></p>
+    <p id="migrateBusy" class="msg" hidden></p>
   </div>
 </div>
 
-<div id="app" class="app hidden">
-
-  <!-- STATUS BAR -->
-  <header class="statusbar">
-    <div class="status-id">
-      <span class="status-tag">USER</span>
-      <span class="status-value" id="currentUserLabel">SILVAN</span>
-      <span class="sync-badge" id="syncStatus" title="Cloud-Status">…</span>
-      <button class="theme-toggle" id="themeToggleBtn" type="button" title="Farben anpassen">🎨</button>
-      <button class="status-logout" id="logoutBtn" type="button" title="Abmelden">⏻</button>
-    </div>
-    <div class="status-xp">
-      <div class="xp-top">
-        <span class="status-tag">LVL <b id="level">1</b></span>
-        <span class="xp-numbers"><span id="xpCurrent">0</span> / <span id="xpNext">100</span> XP</span>
-      </div>
-      <div class="xp-bar"><div class="xp-bar-fill" id="xpBarFill"></div></div>
-    </div>
-    <div class="status-date">
-      <span class="status-tag">HEUTE</span>
-      <span class="status-value" id="todayDate">--</span>
-    </div>
+<!-- APP -->
+<div id="app" hidden>
+  <header id="top" class="glass">
+    <div class="brand"><span class="logo"></span><span class="t">SILVAN<span>.</span>OS</span></div>
+    <button type="button" class="xp" id="xpBtn" aria-label="Level und XP">
+      <span class="xp-lvl">LVL <b id="level">1</b></span>
+      <span class="xp-bar"><i id="xpBarFill"></i></span>
+    </button>
+    <span class="sync" id="syncStatus" data-state="pending" title="Cloud-Status"><i></i></span>
+    <button type="button" class="ib" id="termBtn" aria-label="Terminal öffnen">&gt;_</button>
+    <button type="button" class="ib" id="settingsBtn" aria-label="Einstellungen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+    </button>
   </header>
 
-  <!-- LEVEL UP TOAST -->
-  <div id="levelUpToast" class="levelup-toast hidden">LEVEL UP → <span id="levelUpNum"></span></div>
+  <div id="hudLine" class="hud-line"></div>
 
-  <!-- COLOR / THEME CUSTOMIZATION -->
-  <section class="panel theme-panel hidden" id="themePanel">
-    <div class="theme-panel-head">
-      <span class="status-tag">FARBEN</span>
-      <button class="theme-reset" id="themeResetBtn" type="button">Zurücksetzen</button>
-    </div>
-    <div class="theme-presets" id="themePresets"></div>
-    <div class="theme-custom">
-      <label>Hintergrund <input type="color" id="themeBg"></label>
-      <label>Panel <input type="color" id="themePanelColor"></label>
-      <label>Akzent <input type="color" id="themeAccent"></label>
-      <label>Text <input type="color" id="themeText"></label>
-    </div>
-  </section>
-
-  <main class="grid">
-
-    <!-- FITNESS: hero panel (Logik in js/fitness/*) -->
-    <section class="panel panel-hero" id="panel-fitness">
-      <div class="panel-head">
-        <h2>01 · FITNESS</h2>
-        <span class="panel-sub" id="phaseLabel">--</span>
-      </div>
-
-      <!-- A · Körpergewicht -->
-      <div class="fx-block" id="fxWeight">
-        <div class="fx-kpis">
-          <div class="fx-kpi fx-kpi-main">
-            <span class="stat-label" id="wkAvgLabel">Ø diese Woche</span>
-            <span class="fx-big"><span id="wkAvg">--.-</span><small>kg</small></span>
-            <span class="fx-kpi-sub" id="wkAvgSub"></span>
-          </div>
-          <div class="fx-kpi">
-            <span class="stat-label">Vorwoche</span>
-            <span class="stat-value" id="wkPrev">--.-</span>
-            <span class="fx-kpi-sub" id="wkDelta"></span>
-          </div>
-          <div class="fx-kpi">
-            <span class="stat-label">Tempo (4 Wochen)</span>
-            <span class="stat-value" id="wkRate">--</span>
-            <span class="fx-kpi-sub" id="wkRatePlan"></span>
-          </div>
-        </div>
-
-        <div class="fx-course" id="courseBox"></div>
-        <div class="fx-targets" id="phaseTargets"></div>
-
-        <form id="weightForm" class="fx-weight-form" autocomplete="off">
-          <input type="date" id="weightDate" aria-label="Datum der Messung" required>
-          <input type="text" inputmode="decimal" id="weightInput" placeholder="kg" aria-label="Morgengewicht in kg" required>
-          <button type="submit" id="weightSubmit">Speichern</button>
-        </form>
-
-        <div class="chart-range-row">
-          <span class="chart-range-label">Zeitraum</span>
-          <div class="range-toggle" id="weightRange"></div>
-        </div>
-        <div class="chart-box"><canvas id="weightChart"></canvas></div>
-
-        <details class="fx-details">
-          <summary>Letzte Einträge</summary>
-          <div id="weightList"></div>
-        </details>
-        <details class="fx-details" id="planDetails">
-          <summary>Bulk/Cut-Plan bearbeiten</summary>
-          <form id="planForm" class="fx-plan-form"></form>
-        </details>
-      </div>
-
-      <!-- B · Training loggen -->
-      <div class="fx-block workout-block">
-        <div class="workout-head">
-          <h3 class="fx-h3">Training</h3>
-          <span class="panel-sub">Diese Woche <b id="workoutWeekCount">0</b> / <span id="workoutWeekTarget">2</span></span>
-        </div>
-
-        <div class="fx-daynav">
-          <button type="button" class="fx-icon fx-nav" id="wDayPrev" aria-label="Vorheriger Tag">‹</button>
-          <input type="date" id="workoutDate" aria-label="Trainingsdatum">
-          <button type="button" class="fx-icon fx-nav" id="wDayNext" aria-label="Nächster Tag">›</button>
-          <button type="button" class="fx-chip" id="wDayToday">Heute</button>
-        </div>
-        <div class="session-tabs" id="sessionTabs"></div>
-        <div class="fx-saveinfo" id="workoutSaveInfo"></div>
-
-        <div class="exercise-list" id="exerciseList"></div>
-
-        <details class="fx-details">
-          <summary>Letzte Trainings</summary>
-          <div id="recentWorkoutList"></div>
-        </details>
-        <details class="fx-details">
-          <summary>Übungen &amp; Vorlagen verwalten</summary>
-          <div id="manageBox" class="mg-box"></div>
-        </details>
-      </div>
-
-      <!-- C · Fortschritt pro Übung -->
-      <div class="fx-block exercise-history">
-        <div class="workout-head">
-          <h3 class="fx-h3">Fortschritt pro Übung</h3>
-        </div>
-        <select id="exerciseSelect" class="exercise-select" aria-label="Übung wählen"></select>
-        <div class="chart-range-row">
-          <div class="range-toggle" id="metricToggle"></div>
-          <div class="range-toggle" id="exRange"></div>
-        </div>
-        <div class="chart-box chart-box-lg"><canvas id="exChart"></canvas></div>
-        <p class="fx-hint" id="metricHelp"></p>
-        <div class="fx-exstats" id="exStats"></div>
-
-        <div class="fx-radar">
-          <h3 class="fx-h3">Plateau-Radar</h3>
-          <div id="plateauRadar"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SIDE COLUMN: dynamic projects -->
-    <div class="side-col" id="projectsContainer">
-      <!-- project panels injected by app.js -->
-    </div>
-
-    <!-- add new project -->
-    <button class="add-project-btn" id="addProjectBtn">+ NEUES PROJEKT / TAB</button>
-
-    <!-- DAILY CALENDAR: full width -->
-    <section class="panel panel-wide" id="panel-calendar">
-      <div class="panel-head">
-        <h2 id="calendarNumber">· TAGESPLANER</h2>
-        <span class="panel-sub" id="calendarWeekLabel">--</span>
-      </div>
-
-      <div class="calendar-week">
-        <button class="week-nav" id="weekPrevBtn">‹</button>
-        <div class="week-days" id="weekDays"></div>
-        <button class="week-nav" id="weekNextBtn">›</button>
-      </div>
-
-      <div class="calendar-day">
-        <div class="calendar-day-head" id="calendarDayLabel">--</div>
-        <div class="day-task-list" id="dayTaskList"></div>
-        <form id="dayTaskForm" class="inline-form">
-          <input type="text" id="dayTaskInput" placeholder="Neue Aufgabe für diesen Tag...">
-          <button type="submit">+</button>
-        </form>
-      </div>
-    </section>
-
+  <main id="tiles" class="tiles">
+    <!-- Fitness-Kacheln (js/fitness/ui.js) -->
+    <button type="button" class="tile tile-hero" id="tileTraining" data-open="training"></button>
+    <button type="button" class="tile" id="tileWeight" data-open="weight"></button>
+    <button type="button" class="tile" id="tileProgress" data-open="progress"></button>
+    <!-- Tagesplaner (js/calendar.js) -->
+    <button type="button" class="tile tile-wide" id="tileToday" data-open="calendar"></button>
+    <!-- Projekte (js/projects.js) -->
+    <div class="tiles-label">Projekte</div>
+    <div id="projectTiles" class="tiles-sub"></div>
   </main>
 
-  <footer class="footer">
-    <button id="exportBtn">EXPORT DATA</button>
-    <label class="import-label">IMPORT DATA<input type="file" id="importInput" accept="application/json" hidden></label>
-    <span class="footer-note">Daten in Firebase gespeichert · funktioniert auch offline</span>
-  </footer>
-
+  <!-- Reservierter Platz für Cypher (Priorität 4) -->
+  <div id="cypherSlot" aria-hidden="true"></div>
 </div>
+
+<!-- Detail-Panel (Bottom-Sheet auf dem Handy, Seitenpanel am Desktop) -->
+<div id="scrim" hidden></div>
+<section id="sheet" class="glass" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+  <div class="grab" aria-hidden="true"></div>
+  <div class="scan" aria-hidden="true"></div>
+  <header class="phead">
+    <button type="button" class="back" id="sheetBack" aria-label="Zurück" hidden>‹</button>
+    <div class="phead-txt">
+      <div class="pcat" id="sheetCat"></div>
+      <h2 class="pname" id="sheetTitle"></h2>
+      <div class="psub" id="sheetSub"></div>
+    </div>
+    <div class="phead-act" id="sheetActions"></div>
+    <button type="button" class="close" id="sheetClose" aria-label="Schliessen">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </header>
+  <div class="pbody" id="sheetBody"></div>
+</section>
+
+<!-- Terminal -->
+<section id="term" aria-label="Terminal" hidden>
+  <div class="thead"><span><i></i><i></i><i></i> SILVAN.OS // TERMINAL</span><button type="button" id="termClose" aria-label="Terminal schliessen">✕</button></div>
+  <div id="tOut"></div>
+  <form class="tin" id="tForm" autocomplete="off"><span class="pr">&gt;</span><input id="tIn" type="text" autocapitalize="none" spellcheck="false" enterkeyhint="send" aria-label="Befehl"></form>
+</section>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script type="module" src="app.js"></script>
@@ -247,8 +133,8 @@
   // Falls Firebase nicht laden kann (erster Start ohne Internet), nicht ewig im Boot-Screen hängen.
   setTimeout(function () {
     if (window.__silvanosBooted) return;
-    var el = document.getElementById("bootLine");
-    if (el) el.insertAdjacentHTML("afterend", '<span class="boot-fail">Konnte nicht starten. Internet prüfen und App neu öffnen.</span>');
+    var el = document.getElementById("bootFail");
+    if (el) el.hidden = false;
   }, 12000);
 </script>
 </body>

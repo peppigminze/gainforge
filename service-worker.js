@@ -1,4 +1,4 @@
-const CACHE_NAME = "silvanos-cache-v4";
+const CACHE_NAME = "silvanos-cache-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,6 +8,12 @@ const APP_SHELL = [
   "./js/firebase.js",
   "./js/store.js",
   "./js/legacy.js",
+  "./js/core.js",
+  "./js/projects.js",
+  "./js/calendar.js",
+  "./js/ui/sheet.js",
+  "./js/ui/fx.js",
+  "./js/ui/terminal.js",
   "./js/fitness/model.js",
   "./js/fitness/analytics.js",
   "./js/fitness/charts.js",

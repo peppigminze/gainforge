@@ -15,6 +15,7 @@
 
 import * as M from "./model.js";
 import { todayKey } from "../dates.js";
+import { previousPerformance } from "./analytics.js";
 
 const XP_WEIGHT = 5;
 const XP_EXERCISE = 5;
@@ -62,10 +63,42 @@ export const fitness = {
     commit("set", xp, args);
     return res;
   },
-  removeSet(args) {
-    const res = M.removeSet(state(), args);
+  /** + Satz: addSetRow({date, templateId, exerciseId, defaultSets}) */
+  addSetRow(args) {
+    M.addSetRow(state(), args);
+    commit("structure", 0, args);
+  },
+  /** Satz-Zeile entfernen (auch geplante/leere): removeSetRow({…, setIndex, defaultSets}) */
+  removeSetRow(args) {
+    const res = M.removeSetRow(state(), args);
     commit("structure", res.becameEmpty ? -XP_EXERCISE : 0, args);
     return res;
+  },
+  skipExercise(args) { M.setSkipped(state(), { ...args, skipped: true }); commit("structure", 0, args); },
+  unskipExercise(args) { M.setSkipped(state(), { ...args, skipped: false }); commit("structure", 0, args); },
+  /** Sätze vom letzten Mal übernehmen (nur in leere Felder). */
+  copyPrevious({ date, templateId, exerciseId, defaultSets }) {
+    const f = state();
+    const key = M.workoutKey(date, templateId);
+    const prev = previousPerformance(f, exerciseId, date, key);
+    if (!prev) return { copied: 0 };
+    const w0 = M.getWorkout(f, date, templateId);
+    const wasLogged = M.exerciseLogged(w0, exerciseId);
+    const existing = (w0 && w0.sets[exerciseId]) || [];
+    let copied = 0;
+    prev.sets.forEach((ps, i) => {
+      const cur = existing[i];
+      if (cur && (cur.kg != null || cur.reps != null)) return;
+      M.setSet(f, { date, templateId, exerciseId, setIndex: i, kg: ps.kg, reps: ps.reps });
+      copied++;
+    });
+    const w = M.getWorkout(f, date, templateId);
+    if (w && M.slotCount(w, exerciseId, defaultSets) < prev.sets.length) {
+      w.slots = w.slots || {}; w.slots[exerciseId] = prev.sets.length;
+    }
+    const nowLogged = M.exerciseLogged(M.getWorkout(f, date, templateId), exerciseId);
+    commit("structure", !wasLogged && nowLogged ? XP_EXERCISE : 0, { date, templateId, exerciseId });
+    return { copied };
   },
   moveWorkout(args) {
     const res = M.moveWorkout(state(), args);

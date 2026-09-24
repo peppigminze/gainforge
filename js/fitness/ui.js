@@ -1,28 +1,32 @@
 /* ============================================================
-   fitness/ui.js — Darstellung + Eingaben
+   fitness/ui.js — Kacheln + Detail-Panels (NEXUS-Stil)
    ------------------------------------------------------------
-   Liest nur über fitness.getState() und ändert nur über die
-   Commands aus commands.js. Klick-Handler enthalten keine
-   Datenlogik.
+   Startseite: 3 Kacheln (Training, Gewicht, Fortschritt) mit je
+   EINER Kennzahl. Alles Weitere öffnet sich erst beim Antippen.
+   Liest nur über fitness.getState(), ändert nur über Commands.
    ============================================================ */
 
 import { fitness, onFitnessChange } from "./commands.js";
-import { exerciseName, findTemplate, validSets, workoutKey, workoutHasData, exerciseLogged, parseNum } from "./model.js";
+import {
+  exerciseName, findTemplate, validSets, workoutKey, workoutHasData, exerciseLogged,
+  parseNum, slotCount, exerciseStatus,
+} from "./model.js";
 import {
   exerciseSeries, plateauStatus, previousPerformance, weightEntries, weeklyAverages,
-  courseStatus, currentPhase, plannedWeightAt, fmtSigned, METRICS, e1rm,
+  courseStatus, currentPhase, plannedWeightAt, fmtSigned, METRICS,
 } from "./analytics.js";
 import { renderWeightChart, renderExerciseChart, RANGES } from "./charts.js";
-import { todayKey, addDays, mondayOf, isoWeek, formatLong, formatShort, formatDate, isDayKey } from "../dates.js";
+import { openSheet, refreshSheet, currentSheetId, setHeader } from "../ui/sheet.js";
+import { sparkline, esc, toast, haptic } from "../ui/fx.js";
+import { todayKey, addDays, mondayOf, isoWeek, formatLong, formatShort, formatDate, isDayKey, DOW_SHORT, weekday } from "../dates.js";
 
-const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const fmtKg = (n, d = 1) => (n == null ? "--.-" : n.toFixed(d));
+const setsText = sets => sets.map(s => `${s.kg ?? 0}×${s.reps}`).join(" · ");
 
 const ui = {
   workoutDate: todayKey(),
   templateId: null,
-  extraSlots: {},
+  openEx: null,
   weightRange: "3m",
   exRange: "3m",
   metric: "e1rm",
@@ -31,72 +35,124 @@ const ui = {
   moveOpenKey: null,
 };
 
-let getAccent = () => ({ hex: "#4CE0B3", rgb: "76,224,179" });
-let initialized = false;
+let getAccent = () => ({ hex: "#00f0ff", rgb: "0,240,255" });
 
 /* ============================================================
-   INIT
+   INIT + ÄNDERUNGEN
    ============================================================ */
-export function initFitnessUI(options) {
-  if (options && options.getAccent) getAccent = options.getAccent;
-  if (initialized) return;
-  initialized = true;
-
-  bindWeightEvents();
-  bindWorkoutEvents();
-  bindManageEvents();
-  bindProgressEvents();
-
+export function initFitnessUI(options = {}) {
+  if (options.getAccent) getAccent = options.getAccent;
   onFitnessChange((scope, detail) => {
-    if (scope === "set") {
-      refreshExerciseCard(detail.exerciseId);
-      renderSessionTabs();
-      renderSaveInfo();
-      renderWeekCount();
-      renderRecentWorkouts();
-      renderProgress();
-    } else if (scope === "weight" || scope === "plan") {
-      renderWeight();
-      if (scope === "plan") renderPlanForm();
-    } else {
-      renderWorkout();
-      renderProgress();
+    renderFitnessTiles();
+    const sid = currentSheetId();
+    if (sid === "training") {
+      if (scope === "set") refreshExerciseHead(detail.exerciseId, true);
+      else renderTrainingBody();
+    } else if (sid === "weight" || sid === "progress" || sid === "manage") {
+      refreshSheet();
     }
   });
 }
 
-export function renderFitness() {
+/** Für die HUD-Zeile oben: Phase + Trainingswoche. */
+export function hudInfo() {
   const f = fitness.getState();
-  if (!ui.templateId || !findTemplate(f, ui.templateId)) ui.templateId = suggestTemplate(f);
-  renderWeight();
-  renderPlanForm();
-  renderWorkout();
-  renderProgress();
+  const ph = currentPhase(f.plan);
+  const phase = ph ? (ph.state === "active" ? `${ph.seg.name} M${ph.monthNo}/${ph.seg.months}` : ph.state === "upcoming" ? "Plan startet bald" : "Plan fertig") : "";
+  return { phase, week: `${weekCount(f)}/${f.weeklyTarget} Training` };
 }
 
-/** Vorschlag: erste Vorlage, die diese Woche noch nicht trainiert wurde. */
+function weekCount(f) {
+  const monday = mondayOf(todayKey()), sunday = addDays(monday, 6);
+  return Object.values(f.workouts).filter(w => w.date >= monday && w.date <= sunday && workoutHasData(w)).length;
+}
+
 function suggestTemplate(f) {
-  const monday = mondayOf(todayKey());
+  const today = todayKey();
+  const todays = f.templates.find(t => workoutHasData(f.workouts[workoutKey(today, t.id)]));
+  if (todays) return todays.id;
+  const monday = mondayOf(today);
   const doneThisWeek = new Set(Object.values(f.workouts).filter(w => w.date >= monday && workoutHasData(w)).map(w => w.templateId));
   const open = f.templates.find(t => !doneThisWeek.has(t.id));
   return (open || f.templates[0]).id;
 }
 
-function templateLabel(f, id) {
-  const t = findTemplate(f, id);
-  return t ? t.name : "Gelöschte Vorlage";
+const templateLabel = (f, id) => (findTemplate(f, id) || { name: "Gelöschte Vorlage" }).name;
+
+/* ============================================================
+   KACHELN
+   ============================================================ */
+export function renderFitnessTiles() {
+  const f = fitness.getState();
+  const today = todayKey();
+
+  /* --- Training --- */
+  const count = weekCount(f);
+  const nextTpl = suggestTemplate(f);
+  const todayW = f.workouts[workoutKey(today, nextTpl)];
+  const tpl = findTemplate(f, nextTpl);
+  const doneEx = tpl ? tpl.items.filter(i => ["done", "skipped"].includes(exerciseStatus(todayW, i.exId, i.sets))).length : 0;
+  const last = Object.values(f.workouts).filter(workoutHasData).sort((a, b) => b.date.localeCompare(a.date))[0];
+  const running = workoutHasData(todayW);
+  document.getElementById("tileTraining").innerHTML = `
+    <span class="t-cat"><span class="dot"></span>Training</span>
+    <span class="t-big">${count}<small>/ ${f.weeklyTarget} diese Woche</small></span>
+    <span class="t-dots">${Array.from({ length: f.weeklyTarget }, (_, i) => `<i class="${i < count ? "on" : ""}"></i>`).join("")}</span>
+    <span class="t-sub">${running ? `Heute läuft: ${esc(tpl.name)} · ${doneEx}/${tpl.items.length} Übungen` : `Als Nächstes: ${esc(tpl ? tpl.name : "–")}`}</span>
+    <span class="t-foot">
+      <span>${last ? `Zuletzt ${DOW_SHORT[weekday(last.date)]} ${formatShort(last.date)}` : "Noch kein Training geloggt"}</span>
+      <span class="t-go">${running ? "Weiter" : "Start"} ▸</span>
+    </span>`;
+
+  /* --- Gewicht --- */
+  const weekly = weeklyAverages(weightEntries(f));
+  const cur = weekly.find(w => w.monday === mondayOf(today));
+  const ref = cur || weekly[weekly.length - 1];
+  const course = courseStatus(f, today);
+  const stCls = { on: "st-ok", slow: "st-warn", fast: "st-warn", nodata: "st-mute" }[course.state];
+  const stTxt = { on: "im Kurs", slow: "zu langsam", fast: "zu schnell", nodata: "keine Daten" }[course.state];
+  const todayLogged = f.weights[today] != null;
+  document.getElementById("tileWeight").innerHTML = `
+    <span class="t-cat">Gewicht</span>
+    <span class="t-big">${ref ? fmtKg(ref.avg) : "--.-"}<small>kg</small></span>
+    <span class="t-sub">${ref ? `Ø KW ${isoWeek(ref.monday)}` : "Wochenschnitt"}</span>
+    <span class="t-foot">${todayLogged ? `<span class="t-state ${stCls}">${stTxt}</span>` : `<span class="t-state st-warn">heute wiegen</span>`}</span>
+    ${sparkline(weekly.slice(-8).map(w => w.avg))}`;
+
+  /* --- Fortschritt --- */
+  const ids = exerciseIdsWithData(f);
+  const stats = ids.map(id => plateauStatus(exerciseSeries(f, id)));
+  const stuck = ids.filter((id, i) => stats[i].status === "plateau" || stats[i].status === "decline");
+  const progress = stats.filter(s => s.status === "progress").length;
+  document.getElementById("tileProgress").innerHTML = `
+    <span class="t-cat">Fortschritt</span>
+    <span class="t-big">${progress}<small>/ ${ids.length} im Plus</small></span>
+    <span class="t-sub">${stuck.length ? esc(exerciseName(f, stuck[0])) + (stuck.length > 1 ? ` +${stuck.length - 1}` : "") : ids.length ? "Kein Plateau" : "Noch keine Daten"}</span>
+    <span class="t-foot">${stuck.length ? `<span class="t-state st-warn">${stuck.length} stockt</span>` : ids.length ? `<span class="t-state st-ok">Aufwärtstrend</span>` : ""}</span>`;
 }
 
-function rangeButtons(containerId, active) {
-  $(containerId).innerHTML = Object.entries(RANGES)
-    .map(([key, r]) => `<button type="button" data-range="${key}" class="${key === active ? "active" : ""}">${r.label}</button>`)
-    .join("");
+function exerciseIdsWithData(f) {
+  const order = [];
+  f.templates.forEach(t => t.items.forEach(i => { if (!order.includes(i.exId)) order.push(i.exId); }));
+  f.exercises.forEach(e => { if (!order.includes(e.id)) order.push(e.id); });
+  return order.filter(id => exerciseSeries(f, id).length > 0);
 }
 
 /* ============================================================
-   GEWICHT
+   PANEL: GEWICHT
    ============================================================ */
-function renderWeight() {
+export function openWeight({ focus = false } = {}) {
+  const f = fitness.getState();
+  const ph = currentPhase(f.plan);
+  openSheet({
+    id: "weight", cat: "Körper", title: "Gewicht",
+    sub: ph && ph.state === "active" ? `${ph.seg.name} · Monat ${ph.monthNo} von ${ph.seg.months}` : "Bulk/Cut-Plan",
+    bind: bindWeight, render: renderWeightBody,
+  });
+  if (focus) setTimeout(() => { const i = document.querySelector("#sheetBody [data-w='kg']"); if (i) i.focus(); }, 450);
+}
+
+function renderWeightBody(body) {
   const f = fitness.getState();
   const today = todayKey();
   const entries = weightEntries(f);
@@ -104,595 +160,666 @@ function renderWeight() {
   const thisMonday = mondayOf(today);
   const cur = weekly.find(w => w.monday === thisMonday);
   const prev = weekly.find(w => w.monday === addDays(thisMonday, -7));
-
-  $("wkAvgLabel").textContent = `Ø KW ${isoWeek(today)}`;
-  $("wkAvg").textContent = cur ? fmtKg(cur.avg) : "--.-";
-  $("wkAvgSub").textContent = cur ? `${cur.n} von 7 Messungen${cur.n < 3 ? " · noch wenig Werte" : ""}` : "Diese Woche noch nichts eingetragen";
-  $("wkPrev").textContent = prev ? fmtKg(prev.avg) + " kg" : "--.-";
-  $("wkDelta").textContent = cur && prev ? `${fmtSigned(cur.avg - prev.avg, 2)} kg zur Vorwoche` : "";
-
   const course = courseStatus(f, today);
   const planNow = plannedWeightAt(f.plan, today);
-  $("wkRate").textContent = course.rate != null ? `${fmtSigned(course.rate, 2)} kg` : "--";
-  $("wkRatePlan").textContent = planNow ? `pro Woche · Plan ${fmtSigned(planNow.weeklyRate, 2)}` : "pro Woche";
-
-  const box = $("courseBox");
-  box.className = "fx-course state-" + course.state;
-  box.innerHTML = `
-    <span class="fx-course-title">${esc(course.title)}</span>
-    <span class="fx-course-text">${esc(course.text)}</span>
-    ${course.soll ? `<span class="fx-course-meta">Ist Ø ${fmtKg(course.ref.avg, 2)} kg (KW ${isoWeek(course.ref.monday)}) · Soll ${fmtKg(course.soll.weight, 2)} kg</span>` : ""}`;
-
-  const phase = currentPhase(f.plan, today);
+  const ph = currentPhase(f.plan);
+  const s = ph ? ph.seg : null;
   const p = f.plan;
-  if (phase) {
-    const s = phase.seg;
-    $("phaseLabel").textContent =
-      phase.state === "upcoming" ? `Plan startet am ${formatDate(s.start)}` :
-      phase.state === "finished" ? "Plan abgeschlossen" :
-      `${s.name} · Monat ${phase.monthNo} von ${s.months}`;
-    $("phaseTargets").innerHTML = `
-      <span><b>${s.kcalMin}–${s.kcalMax}</b> kcal</span>
-      <span><b>${s.proteinMin}–${s.proteinMax} g</b> Protein</span>
-      <span>Kreatin <b>${p.creatineG} g</b></span>
-      <span>Ziel ${s.name}: <b>${s.targetWeight} kg</b> bei ${esc(s.targetBf)} % KFA bis ${formatDate(s.end)}</span>`;
-  }
+  const selDate = body.dataset.date && isDayKey(body.dataset.date) ? body.dataset.date : today;
+  const existing = f.weights[selDate];
+  const cls = { on: "ok", slow: "warn", fast: "warn", nodata: "" }[course.state];
+  const openAcc = [...body.querySelectorAll("details[open]")].map(d => d.dataset.acc);
 
-  if (!isDayKey($("weightDate").value)) $("weightDate").value = today;
-  syncWeightFormHint();
+  body.innerHTML = `
+    <div class="psec">Morgengewicht</div>
+    <form class="form-row" data-form="weight" autocomplete="off">
+      <input type="date" class="field" data-w="date" value="${selDate}" max="${today}" aria-label="Datum">
+      <input type="text" inputmode="decimal" enterkeyhint="done" class="field" data-w="kg" placeholder="${existing != null ? fmtKg(existing) + " kg" : "kg"}" aria-label="Gewicht in kg">
+      <button type="submit" class="btn primary">${existing != null ? "Ändern" : "Log"}</button>
+    </form>
 
-  rangeButtons("weightRange", ui.weightRange);
-  renderWeightChart($("weightChart"), { entries, weekly, plan: f.plan, range: ui.weightRange, accent: getAccent() });
+    <div class="psec">Woche</div>
+    <div class="kv">
+      <div><b>Schnitt KW ${isoWeek(today)}</b><span class="hl">${cur ? fmtKg(cur.avg) : "--.-"}</span><em>${cur ? `${cur.n}/7 Messungen` : "noch keine"}</em></div>
+      <div><b>Vorwoche</b><span>${prev ? fmtKg(prev.avg) + " kg" : "--"}</span><em>${cur && prev ? fmtSigned(cur.avg - prev.avg, 2) + " kg" : ""}</em></div>
+      <div><b>Tempo</b><span>${course.rate != null ? fmtSigned(course.rate, 2) : "--"}</span><em>${planNow ? `kg/W · Soll ${fmtSigned(planNow.weeklyRate, 2)}` : "kg/Woche"}</em></div>
+    </div>
+    <div class="callout ${cls}"><b>${esc(course.title)}</b>${esc(course.text)}
+      ${course.soll ? `<span class="meta">Ist Ø ${fmtKg(course.ref.avg, 2)} kg (KW ${isoWeek(course.ref.monday)}) · Soll ${fmtKg(course.soll.weight, 2)} kg</span>` : ""}</div>
+    ${s ? `<div class="tags">
+      <span><b>${s.kcalMin}–${s.kcalMax}</b> kcal</span><span><b>${s.proteinMin}–${s.proteinMax} g</b> Protein</span>
+      <span>Kreatin <b>${p.creatineG} g</b></span><span>Ziel <b>${s.targetWeight} kg</b> · ${esc(s.targetBf)} % KFA</span></div>` : ""}
 
-  const list = [...entries].reverse().slice(0, 21);
-  $("weightList").innerHTML = list.length
-    ? list.map(e => `
-        <div class="fx-row" data-date="${e.date}">
-          <button type="button" class="fx-row-main" data-action="edit-weight">${formatLong(e.date)}</button>
-          <span class="fx-row-val">${fmtKg(e.kg)} kg</span>
-          <button type="button" class="fx-icon" data-action="del-weight" aria-label="Eintrag löschen">✕</button>
-        </div>`).join("")
-    : `<p class="fx-empty">Noch keine Einträge.</p>`;
+    <div class="seg-row"><div class="seg" data-seg="wrange">${rangeButtons(ui.weightRange)}</div></div>
+    <div class="chart-box"><canvas id="weightChart"></canvas></div>
+    <p class="hint">Punkte = Tageswerte · Linie = Wochenschnitt · gestrichelt = Plan</p>
+
+    <details class="acc" data-acc="entries" ${openAcc.includes("entries") ? "open" : ""}>
+      <summary>Einträge</summary>
+      <div class="acc-body" style="padding:0">
+        <div class="rows" style="border:0;border-radius:0">
+        ${[...entries].reverse().slice(0, 30).map(e => `
+          <div class="r" data-date="${e.date}">
+            <button type="button" class="r-main" data-act="edit">${formatLong(e.date)}</button>
+            <span class="r-val">${fmtKg(e.kg)} kg</span>
+            <button type="button" class="ico del" data-act="del" aria-label="Löschen">✕</button>
+          </div>`).join("") || `<div class="empty">Noch keine Einträge.</div>`}
+        </div>
+      </div>
+    </details>
+
+    <details class="acc" data-acc="plan" ${openAcc.includes("plan") ? "open" : ""}>
+      <summary>Plan bearbeiten</summary>
+      <form class="acc-body" data-form="plan">${planFormHTML(p)}</form>
+    </details>`;
+
+  renderWeightChart(body.querySelector("#weightChart"), { entries, weekly, plan: f.plan, range: ui.weightRange, accent: getAccent() });
 }
 
-function syncWeightFormHint() {
-  const f = fitness.getState();
-  const date = $("weightDate").value;
-  const existing = f.weights[date];
-  $("weightInput").placeholder = existing != null ? `${fmtKg(existing)} kg gespeichert` : "kg";
-  $("weightSubmit").textContent = existing != null ? "Ändern" : "Speichern";
-}
-
-function bindWeightEvents() {
-  $("weightDate").addEventListener("change", syncWeightFormHint);
-
-  $("weightForm").addEventListener("submit", e => {
-    e.preventDefault();
-    const date = $("weightDate").value;
-    const kg = parseNum($("weightInput").value);
-    if (!isDayKey(date)) return flash($("weightDate"));
-    if (!(kg > 20 && kg < 400)) return flash($("weightInput"));
-    fitness.logWeight(date, kg);
-    $("weightInput").value = "";
-    $("weightInput").blur();
-  });
-
-  $("weightRange").addEventListener("click", e => {
-    const b = e.target.closest("button[data-range]");
-    if (!b) return;
-    ui.weightRange = b.dataset.range;
-    renderWeight();
-  });
-
-  $("weightList").addEventListener("click", e => {
-    const btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    const date = btn.closest(".fx-row").dataset.date;
-    if (btn.dataset.action === "del-weight") {
-      if (confirm(`Gewicht vom ${formatLong(date)} löschen?`)) fitness.deleteWeight(date);
-    } else {
-      $("weightDate").value = date;
-      $("weightInput").value = String(fitness.getState().weights[date]);
-      syncWeightFormHint();
-      $("weightInput").focus();
-    }
-  });
-
-  $("planForm").addEventListener("submit", e => {
-    e.preventDefault();
-    const form = e.target;
-    const val = name => form.elements[name].value;
-    const num = name => parseNum(val(name));
-    const f = fitness.getState();
-    const phases = f.plan.phases.map((ph, i) => ({
-      ...ph,
-      name: val(`ph${i}_name`).trim() || ph.name,
-      months: Math.max(1, Math.round(num(`ph${i}_months`) || ph.months)),
-      kcalMin: num(`ph${i}_kcalMin`) ?? ph.kcalMin,
-      kcalMax: num(`ph${i}_kcalMax`) ?? ph.kcalMax,
-      proteinMin: num(`ph${i}_proteinMin`) ?? ph.proteinMin,
-      proteinMax: num(`ph${i}_proteinMax`) ?? ph.proteinMax,
-      targetWeight: num(`ph${i}_targetWeight`) ?? ph.targetWeight,
-      targetBf: val(`ph${i}_targetBf`).trim() || ph.targetBf,
-    }));
-    const startDate = val("startDate");
-    if (!isDayKey(startDate)) return flash(form.elements.startDate);
-    fitness.updatePlan({
-      startDate,
-      startWeight: num("startWeight") ?? f.plan.startWeight,
-      heightCm: num("heightCm") ?? f.plan.heightCm,
-      creatineG: num("creatineG") ?? f.plan.creatineG,
-      phases,
-    });
-    $("planDetails").open = false;
-  });
-}
-
-function renderPlanForm() {
-  const p = fitness.getState().plan;
-  const field = (name, label, value, type = "text", mode = "decimal") =>
-    `<label>${label}<input name="${name}" type="${type}" ${type === "text" ? `inputmode="${mode}"` : ""} value="${esc(value)}"></label>`;
-  $("planForm").innerHTML = `
-    <div class="fx-form-grid">
-      ${field("startDate", "Planstart", p.startDate, "date")}
-      ${field("startWeight", "Startgewicht (kg)", p.startWeight)}
-      ${field("heightCm", "Grösse (cm)", p.heightCm, "text", "numeric")}
-      ${field("creatineG", "Kreatin (g/Tag)", p.creatineG)}
+function planFormHTML(p) {
+  const fld = (name, label, value, type = "text", mode = "decimal") =>
+    `<label>${label}<input class="field" name="${name}" type="${type}" ${type === "text" ? `inputmode="${mode}"` : ""} value="${esc(value)}"></label>`;
+  return `
+    <div class="form-grid">
+      ${fld("startDate", "Planstart", p.startDate, "date")}
+      ${fld("startWeight", "Start (kg)", p.startWeight)}
+      ${fld("heightCm", "Grösse (cm)", p.heightCm, "text", "numeric")}
+      ${fld("creatineG", "Kreatin (g)", p.creatineG)}
     </div>
     ${p.phases.map((ph, i) => `
-      <fieldset class="fx-phase">
-        <legend>Phase ${i + 1}</legend>
-        <div class="fx-form-grid">
-          ${field(`ph${i}_name`, "Name", ph.name, "text", "text")}
-          ${field(`ph${i}_months`, "Dauer (Monate)", ph.months, "text", "numeric")}
-          ${field(`ph${i}_kcalMin`, "kcal von", ph.kcalMin, "text", "numeric")}
-          ${field(`ph${i}_kcalMax`, "kcal bis", ph.kcalMax, "text", "numeric")}
-          ${field(`ph${i}_proteinMin`, "Protein von (g)", ph.proteinMin, "text", "numeric")}
-          ${field(`ph${i}_proteinMax`, "Protein bis (g)", ph.proteinMax, "text", "numeric")}
-          ${field(`ph${i}_targetWeight`, "Zielgewicht (kg)", ph.targetWeight)}
-          ${field(`ph${i}_targetBf`, "Ziel-KFA (%)", ph.targetBf, "text", "text")}
+      <div class="phase-box">
+        <div class="phase-title">Phase ${i + 1}</div>
+        <div class="form-grid">
+          ${fld(`ph${i}_name`, "Name", ph.name, "text", "text")}
+          ${fld(`ph${i}_months`, "Monate", ph.months, "text", "numeric")}
+          ${fld(`ph${i}_kcalMin`, "kcal von", ph.kcalMin, "text", "numeric")}
+          ${fld(`ph${i}_kcalMax`, "kcal bis", ph.kcalMax, "text", "numeric")}
+          ${fld(`ph${i}_proteinMin`, "Protein von", ph.proteinMin, "text", "numeric")}
+          ${fld(`ph${i}_proteinMax`, "Protein bis", ph.proteinMax, "text", "numeric")}
+          ${fld(`ph${i}_targetWeight`, "Ziel (kg)", ph.targetWeight)}
+          ${fld(`ph${i}_targetBf`, "Ziel-KFA %", ph.targetBf, "text", "text")}
         </div>
-      </fieldset>`).join("")}
-    <button type="submit" class="fx-primary">Plan speichern</button>`;
+      </div>`).join("")}
+    <button type="submit" class="btn primary block" style="margin-top:12px">Plan speichern</button>`;
+}
+
+function bindWeight(body) {
+  body.addEventListener("submit", e => {
+    e.preventDefault();
+    const form = e.target;
+    if (form.dataset.form === "weight") {
+      const dateIn = form.querySelector("[data-w='date']");
+      const kgIn = form.querySelector("[data-w='kg']");
+      const kg = parseNum(kgIn.value);
+      if (!isDayKey(dateIn.value) || dateIn.value > todayKey()) return flash(dateIn);
+      if (!(kg > 20 && kg < 400)) return flash(kgIn);
+      body.dataset.date = dateIn.value;
+      kgIn.blur();
+      fitness.logWeight(dateIn.value, kg);
+      haptic();
+      toast(`${fmtKg(kg)} kg am ${formatShort(dateIn.value)} gespeichert`);
+    } else if (form.dataset.form === "plan") {
+      savePlan(form);
+    }
+  });
+  body.addEventListener("change", e => {
+    if (e.target.dataset.w === "date") { body.dataset.date = e.target.value; refreshSheet(); }
+  });
+  body.addEventListener("click", e => {
+    const segBtn = e.target.closest("[data-seg='wrange'] button");
+    if (segBtn) { ui.weightRange = segBtn.dataset.range; refreshSheet(); return; }
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const date = b.closest("[data-date]").dataset.date;
+    if (b.dataset.act === "del") { if (confirm(`Gewicht vom ${formatLong(date)} löschen?`)) fitness.deleteWeight(date); }
+    else { body.dataset.date = date; refreshSheet(); body.scrollTo({ top: 0, behavior: "smooth" }); setTimeout(() => body.querySelector("[data-w='kg']").focus(), 250); }
+  });
+}
+
+function savePlan(form) {
+  const val = n => form.elements[n].value;
+  const num = n => parseNum(val(n));
+  const f = fitness.getState();
+  const phases = f.plan.phases.map((ph, i) => ({
+    ...ph,
+    name: val(`ph${i}_name`).trim() || ph.name,
+    months: Math.max(1, Math.round(num(`ph${i}_months`) || ph.months)),
+    kcalMin: num(`ph${i}_kcalMin`) ?? ph.kcalMin, kcalMax: num(`ph${i}_kcalMax`) ?? ph.kcalMax,
+    proteinMin: num(`ph${i}_proteinMin`) ?? ph.proteinMin, proteinMax: num(`ph${i}_proteinMax`) ?? ph.proteinMax,
+    targetWeight: num(`ph${i}_targetWeight`) ?? ph.targetWeight,
+    targetBf: val(`ph${i}_targetBf`).trim() || ph.targetBf,
+  }));
+  if (!isDayKey(val("startDate"))) return flash(form.elements.startDate);
+  fitness.updatePlan({
+    startDate: val("startDate"), startWeight: num("startWeight") ?? f.plan.startWeight,
+    heightCm: num("heightCm") ?? f.plan.heightCm, creatineG: num("creatineG") ?? f.plan.creatineG, phases,
+  });
+  toast("Plan gespeichert");
 }
 
 /* ============================================================
-   TRAINING LOGGEN
+   PANEL: TRAINING (Vollbild, Übungen als Akkordeon)
    ============================================================ */
-function renderWorkout() {
-  $("workoutDate").value = ui.workoutDate;
-  renderSessionTabs();
-  renderSaveInfo();
-  renderExerciseList();
-  renderWeekCount();
-  renderRecentWorkouts();
-  renderManage();
+export function openTraining({ date, templateId } = {}) {
+  const f = fitness.getState();
+  ui.workoutDate = date && isDayKey(date) && date <= todayKey() ? date : todayKey();
+  if (templateId && (findTemplate(f, templateId) || f.workouts[workoutKey(ui.workoutDate, templateId)])) ui.templateId = templateId;
+  else if (!date || !ui.templateId || !findTemplate(f, ui.templateId)) ui.templateId = suggestTemplate(f);
+  ui.openEx = firstOpenExercise(f);
+  openSheet({
+    id: "training", cat: "Training", title: templateLabel(f, ui.templateId), sub: formatLong(ui.workoutDate), full: true,
+    actions: [{ label: "Vorlagen", onClick: () => openManage() }],
+    bind: bindTraining, render: () => renderTrainingBody(),
+  });
 }
 
-function currentItems(f) {
+function items(f) {
   const tpl = findTemplate(f, ui.templateId);
   const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
-  const items = tpl ? tpl.items.map(i => ({ ...i, inTemplate: true })) : [];
-  // Geloggte Übungen, die (nicht mehr) in der Vorlage sind, trotzdem anzeigen
-  if (w) Object.keys(w.sets).forEach(exId => {
-    if (!items.some(i => i.exId === exId)) items.push({ exId, sets: w.sets[exId].length, inTemplate: false });
-  });
-  return items;
+  const list = tpl ? tpl.items.map(i => ({ ...i, inTemplate: true })) : [];
+  if (w) Object.keys(w.sets).forEach(exId => { if (!list.some(i => i.exId === exId)) list.push({ exId, sets: w.sets[exId].length, inTemplate: false }); });
+  return list;
 }
 
-function renderSessionTabs() {
+function firstOpenExercise(f) {
+  const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
+  const it = items(f).find(i => ["todo", "partial"].includes(exerciseStatus(w, i.exId, i.sets)));
+  return it ? it.exId : null;
+}
+
+function progressHTML(list, w) {
+  const finished = list.filter(i => ["done", "skipped"].includes(exerciseStatus(w, i.exId, i.sets))).length;
+  const setCount = w ? Object.keys(w.sets).reduce((n, id) => n + validSets(w.sets[id]).length, 0) : 0;
+  return `<span>${finished}/${list.length} Übungen</span><span class="bar"><i style="width:${list.length ? (finished / list.length) * 100 : 0}%"></i></span><span>${setCount} Sätze</span>`;
+}
+
+function renderTrainingBody() {
+  if (currentSheetId() !== "training") return;
+  const body = document.getElementById("sheetBody");
   const f = fitness.getState();
+  const today = todayKey();
+  const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
+  const list = items(f);
   const tabs = [...f.templates];
   if (!findTemplate(f, ui.templateId)) tabs.push({ id: ui.templateId, name: "Gelöschte Vorlage" });
-  $("sessionTabs").innerHTML = tabs.map(t => {
-    const done = workoutHasData(f.workouts[workoutKey(ui.workoutDate, t.id)]);
-    return `<button type="button" class="session-tab ${t.id === ui.templateId ? "active" : ""} ${done ? "done" : ""}" data-tpl="${esc(t.id)}">${esc(t.name)}${done ? " ✓" : ""}</button>`;
-  }).join("");
+  setHeader({ title: templateLabel(f, ui.templateId), sub: formatLong(ui.workoutDate) + (ui.workoutDate === today ? " · heute" : "") });
+  const top = body.scrollTop;
+
+  body.innerHTML = `
+    <div class="w-nav">
+      <button type="button" class="ico" data-act="day-prev" aria-label="Vorheriger Tag">‹</button>
+      <input type="date" class="field" data-act-date value="${ui.workoutDate}" max="${today}" aria-label="Trainingsdatum">
+      <button type="button" class="ico" data-act="day-next" aria-label="Nächster Tag" ${ui.workoutDate >= today ? "disabled" : ""}>›</button>
+      ${ui.workoutDate !== today ? `<button type="button" class="btn small" data-act="day-today">Heute</button>` : `<span></span>`}
+    </div>
+    <div class="seg" style="margin-top:10px">${tabs.map(t => {
+      const done = workoutHasData(f.workouts[workoutKey(ui.workoutDate, t.id)]);
+      return `<button type="button" data-tpl="${esc(t.id)}" class="${t.id === ui.templateId ? "on" : ""} ${done ? "done" : ""}">${esc(t.name)}${done ? " ✓" : ""}</button>`;
+    }).join("")}</div>
+    ${ui.workoutDate !== today ? `<p class="w-where past">Du trägst für ${formatLong(ui.workoutDate)} nach.</p>` : ""}
+    <div class="w-prog">${progressHTML(list, w)}</div>
+    <div class="exs">${list.map(i => exerciseHTML(f, w, i)).join("") || `<div class="empty">Diese Vorlage ist leer. Oben rechts unter „Vorlagen“ Übungen hinzufügen.</div>`}</div>
+    <details class="acc" data-acc="recent" ${ui.moveOpenKey ? "open" : ""}>
+      <summary>Letzte Trainings</summary>
+      <div class="acc-body" style="padding:0">${recentHTML(f)}</div>
+    </details>`;
+  body.scrollTop = top;
 }
 
-function renderSaveInfo() {
-  const f = fitness.getState();
-  const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
-  const n = w ? Object.keys(w.sets).filter(id => exerciseLogged(w, id)).length : 0;
-  const isToday = ui.workoutDate === todayKey();
-  $("workoutSaveInfo").innerHTML =
-    `Speichert auf <b>${formatLong(ui.workoutDate)}</b>${isToday ? " (heute)" : ""} · ${esc(templateLabel(f, ui.templateId))}` +
-    (n ? ` · ${n} Übung${n === 1 ? "" : "en"} geloggt` : "");
-  $("workoutSaveInfo").classList.toggle("not-today", !isToday);
+function exMeta(f, w, item, st) {
+  if (st === "skipped") return "übersprungen";
+  const sets = w ? validSets(w.sets[item.exId]) : [];
+  if (sets.length) return setsText(sets);
+  if (!item.inTemplate) return "nicht in dieser Vorlage";
+  const prev = previousPerformance(f, item.exId, ui.workoutDate, workoutKey(ui.workoutDate, ui.templateId));
+  return prev ? `zuletzt ${setsText(prev.sets)}` : "noch nie geloggt";
 }
 
-function renderWeekCount() {
-  const f = fitness.getState();
-  const monday = mondayOf(todayKey());
-  const sunday = addDays(monday, 6);
-  const count = Object.values(f.workouts).filter(w => w.date >= monday && w.date <= sunday && workoutHasData(w)).length;
-  $("workoutWeekCount").textContent = count;
-  $("workoutWeekTarget").textContent = f.weeklyTarget;
+function exerciseHTML(f, w, item) {
+  const st = exerciseStatus(w, item.exId, item.sets);
+  const slots = slotCount(w, item.exId, item.sets);
+  const logged = w ? validSets(w.sets[item.exId]).length : 0;
+  const open = ui.openEx === item.exId;
+  return `
+  <div class="ex ${open ? "open" : ""}" data-exid="${esc(item.exId)}" data-sets="${item.sets}" data-st="${st}" style="--p:${slots ? (logged / slots) * 100 : 0}%">
+    <button type="button" class="ex-head" data-act="toggle-ex" aria-expanded="${open}">
+      <span class="ex-mark">${st === "done" ? "✓" : st === "skipped" ? "–" : ""}</span>
+      <span class="ex-txt"><span class="ex-name">${esc(exerciseName(f, item.exId))}</span><span class="ex-meta">${esc(exMeta(f, w, item, st))}</span></span>
+      <span class="ex-count">${st === "skipped" ? "" : `${logged}/${slots}`}</span>
+    </button>
+    ${open ? exerciseBodyHTML(f, w, item, st, slots) : ""}
+  </div>`;
 }
 
-function slotKey(exId) { return `${ui.workoutDate}_${ui.templateId}_${exId}`; }
-
-function exerciseCardHTML(f, item) {
-  const key = workoutKey(ui.workoutDate, ui.templateId);
-  const w = f.workouts[key];
+function exerciseBodyHTML(f, w, item, st, slots) {
+  if (st === "skipped") {
+    return `<div class="ex-body"><div class="ex-actions"><button type="button" class="btn small" data-act="unskip">Wieder aufnehmen</button></div></div>`;
+  }
   const sets = (w && w.sets[item.exId]) || [];
-  const slots = Math.max(item.sets, sets.length, ui.extraSlots[slotKey(item.exId)] || 0);
-  const prev = previousPerformance(f, item.exId, ui.workoutDate, key);
-  const logged = validSets(sets).length;
-
+  const prev = previousPerformance(f, item.exId, ui.workoutDate, workoutKey(ui.workoutDate, ui.templateId));
+  const canCopy = prev && prev.sets.some((_, i) => !sets[i] || (sets[i].kg == null && sets[i].reps == null));
   const rows = [];
   for (let i = 0; i < slots; i++) {
     const s = sets[i] || { kg: null, reps: null };
     const ph = prev ? (prev.sets[i] || prev.sets[prev.sets.length - 1]) : null;
-    const hasData = s.kg != null || s.reps != null;
-    const removable = hasData || i >= item.sets;
+    const isLogged = Number.isFinite(s.reps) && s.reps > 0;
     rows.push(`
-      <div class="ex-set" data-idx="${i}">
-        <span class="ex-set-no">${i + 1}</span>
-        <input type="text" inputmode="decimal" autocomplete="off" data-field="kg" value="${s.kg ?? ""}" placeholder="${ph && ph.kg != null ? ph.kg : "kg"}" aria-label="Satz ${i + 1} Gewicht in kg">
-        <span class="ex-x">kg ×</span>
-        <input type="text" inputmode="numeric" autocomplete="off" data-field="reps" value="${s.reps ?? ""}" placeholder="${ph ? ph.reps : "Wdh."}" aria-label="Satz ${i + 1} Wiederholungen">
-        ${removable ? `<button type="button" class="fx-icon" data-action="remove-set" aria-label="Satz ${i + 1} entfernen">✕</button>` : `<span class="fx-icon-spacer"></span>`}
+      <div class="set ${isLogged ? "logged" : ""}" data-idx="${i}">
+        <span class="set-no">${i + 1}</span>
+        <input type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" data-field="kg" value="${s.kg ?? ""}" placeholder="${ph && ph.kg != null ? ph.kg : "kg"}" aria-label="Satz ${i + 1} kg">
+        <span class="set-x">×</span>
+        <input type="text" inputmode="numeric" enterkeyhint="next" autocomplete="off" data-field="reps" class="${s.kg != null && !isLogged ? "need" : ""}" value="${s.reps ?? ""}" placeholder="${ph ? ph.reps : "Wdh."}" aria-label="Satz ${i + 1} Wiederholungen">
+        <button type="button" class="ico del" data-act="remove-set" aria-label="Satz ${i + 1} entfernen">✕</button>
       </div>`);
   }
-
   return `
-    <div class="ex-card ${logged ? "done" : ""}" data-exid="${esc(item.exId)}">
-      <div class="ex-card-head">
-        <span class="ex-name">${esc(exerciseName(f, item.exId))}</span>
-        <span class="ex-count">${logged}/${item.sets}</span>
+    <div class="ex-body">
+      ${prev ? `<div class="ex-last"><span>Zuletzt ${formatShort(prev.date)}: <b>${setsText(prev.sets)}</b></span>${canCopy ? `<button type="button" class="btn small" data-act="copy">Übernehmen</button>` : ""}</div>` : ""}
+      ${slots ? `<div class="set-lbl"><span>#</span><span>KG</span><span></span><span>WDH</span><span></span></div>` : ""}
+      ${rows.join("")}
+      <div class="ex-actions">
+        <button type="button" class="btn small ghost" data-act="add-set">+ Satz</button>
+        ${!exerciseLogged(w, item.exId) ? `<button type="button" class="btn small ghost" data-act="skip">Überspringen</button>` : ""}
       </div>
-      ${prev ? `<div class="ex-last">Letztes Mal ${formatShort(prev.date)}: ${prev.sets.map(s => `${s.kg ?? 0}×${s.reps}`).join(" · ")}</div>` : ""}
-      ${item.inTemplate ? "" : `<div class="ex-last">Nicht (mehr) in dieser Vorlage</div>`}
-      <div class="ex-sets">${rows.join("")}</div>
-      <button type="button" class="ex-addset" data-action="add-set">+ Satz</button>
     </div>`;
 }
 
-function renderExerciseList() {
-  const f = fitness.getState();
-  const items = currentItems(f);
-  $("exerciseList").innerHTML = items.length
-    ? items.map(item => exerciseCardHTML(f, item)).join("")
-    : `<p class="fx-empty">Diese Vorlage hat noch keine Übungen. Füg unten unter „Übungen & Vorlagen verwalten“ welche hinzu.</p>`;
-}
-
-/** Nach einer Eingabe nur Zähler/Status der Karte aktualisieren — Inputs bleiben stehen (kein Fokusverlust). */
-function refreshExerciseCard(exId) {
-  const card = $("exerciseList").querySelector(`.ex-card[data-exid="${CSS.escape(exId)}"]`);
-  if (!card) return;
+/** Nach einer Satz-Eingabe nur Kopf der Übung + Fortschritt aktualisieren (Inputs bleiben, kein Fokusverlust). */
+function refreshExerciseHead(exId, maybeAdvance) {
+  const body = document.getElementById("sheetBody");
+  const el = body.querySelector(`.ex[data-exid="${CSS.escape(exId)}"]`);
+  if (!el) return renderTrainingBody();
   const f = fitness.getState();
   const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
+  const list = items(f);
+  const item = list.find(i => i.exId === exId);
+  if (!item) return;
+  const before = el.dataset.st;
+  const st = exerciseStatus(w, exId, item.sets);
+  const slots = slotCount(w, exId, item.sets);
   const logged = w ? validSets(w.sets[exId]).length : 0;
-  const item = currentItems(f).find(i => i.exId === exId);
-  card.classList.toggle("done", logged > 0);
-  card.querySelector(".ex-count").textContent = `${logged}/${item ? item.sets : logged}`;
+  el.dataset.st = st;
+  el.style.setProperty("--p", `${slots ? (logged / slots) * 100 : 0}%`);
+  el.querySelector(".ex-mark").textContent = st === "done" ? "✓" : "";
+  el.querySelector(".ex-count").textContent = `${logged}/${slots}`;
+  el.querySelector(".ex-meta").textContent = exMeta(f, w, item, st);
+  el.querySelectorAll(".set").forEach(row => {
+    const s = w && w.sets[exId] ? w.sets[exId][+row.dataset.idx] : null;
+    const ok = s && Number.isFinite(s.reps) && s.reps > 0;
+    row.classList.toggle("logged", !!ok);
+    row.querySelector("[data-field='reps']").classList.toggle("need", !!(s && s.kg != null && !ok));
+  });
+  const skipBtn = el.querySelector("[data-act='skip']");
+  if (skipBtn && logged) skipBtn.remove();
+
+  const prog = body.querySelector(".w-prog");
+  if (prog) prog.innerHTML = progressHTML(list, w);
+  const tab = body.querySelector(`.seg [data-tpl="${CSS.escape(ui.templateId)}"]`);
+  if (tab) { const has = workoutHasData(w); tab.classList.toggle("done", has); tab.textContent = templateLabel(f, ui.templateId) + (has ? " ✓" : ""); }
+
+  // Übung fertig -> nächste offene Übung aufklappen
+  if (maybeAdvance && before !== "done" && st === "done") {
+    haptic();
+    setTimeout(() => {
+      if (currentSheetId() !== "training" || ui.openEx !== exId) return;
+      const a = document.activeElement;
+      if (a && el.contains(a) && a.matches("input[data-field]")) return; // tippt noch in dieser Übung
+      advanceFrom(exId);
+    }, 400);
+  }
+}
+
+function advanceFrom(exId) {
+  const f = fitness.getState();
+  const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
+  const list = items(f);
+  const idx = list.findIndex(i => i.exId === exId);
+  const next = list.slice(idx + 1).concat(list.slice(0, idx)).find(i => ["todo", "partial"].includes(exerciseStatus(w, i.exId, i.sets)));
+  if (document.activeElement) document.activeElement.blur();
+  ui.openEx = next ? next.exId : null;
+  renderTrainingBody();
+  if (next) scrollToExercise(next.exId);
+  else toast("Training komplett ✓");
+}
+
+function scrollToExercise(exId) {
+  const body = document.getElementById("sheetBody");
+  const el = body.querySelector(`.ex[data-exid="${CSS.escape(exId)}"]`);
+  if (el) body.scrollTo({ top: el.offsetTop - 8, behavior: "smooth" });
 }
 
 function setWorkoutDate(date) {
-  if (!isDayKey(date)) return;
+  if (!isDayKey(date) || date > todayKey()) return;
   ui.workoutDate = date;
-  renderWorkout();
+  ui.moveOpenKey = null;
+  ui.openEx = firstOpenExercise(fitness.getState());
+  renderTrainingBody();
 }
 
-function bindWorkoutEvents() {
-  $("workoutDate").addEventListener("change", e => {
-    if (isDayKey(e.target.value)) setWorkoutDate(e.target.value);
-    else e.target.value = ui.workoutDate; // leeres/ungültiges Feld -> nichts verschieben
-  });
-  $("wDayPrev").addEventListener("click", () => setWorkoutDate(addDays(ui.workoutDate, -1)));
-  $("wDayNext").addEventListener("click", () => setWorkoutDate(addDays(ui.workoutDate, 1)));
-  $("wDayToday").addEventListener("click", () => setWorkoutDate(todayKey()));
-
-  $("sessionTabs").addEventListener("click", e => {
-    const b = e.target.closest(".session-tab");
-    if (!b) return;
-    ui.templateId = b.dataset.tpl;
-    renderWorkout();
-  });
-
-  // Eingabe gespeichert bei "change" (Feld verlassen / Enter)
-  $("exerciseList").addEventListener("change", e => {
+function bindTraining(body) {
+  body.addEventListener("change", e => {
     const input = e.target;
+    if (input.matches("[data-act-date]")) {
+      if (isDayKey(input.value) && input.value <= todayKey()) setWorkoutDate(input.value);
+      else { input.value = ui.workoutDate; toast("Datum in der Zukunft geht nicht", "err"); }
+      return;
+    }
     if (!input.matches("input[data-field]")) return;
-    const card = input.closest(".ex-card");
-    const setIndex = +input.closest(".ex-set").dataset.idx;
+    const ex = input.closest(".ex");
+    const setIndex = +input.closest(".set").dataset.idx;
     const field = input.dataset.field;
     const value = parseNum(input.value);
-    const limit = field === "kg" ? 1000 : 200;
-    if (value != null && (value < 0 || value > limit)) { flash(input); return; }
-    input.classList.remove("invalid");
+    if (input.value.trim() !== "" && value == null) return flash(input);
+    if (value != null && (value < 0 || value > (field === "kg" ? 1000 : 200))) return flash(input);
     if (field === "reps" && value != null) input.value = Math.round(value);
-    fitness.logSet({ date: ui.workoutDate, templateId: ui.templateId, exerciseId: card.dataset.exid, setIndex, [field]: value });
+    try {
+      fitness.logSet({ date: ui.workoutDate, templateId: ui.templateId, exerciseId: ex.dataset.exid, setIndex, [field]: value });
+    } catch (err) { toast(err.message, "err"); }
   });
 
-  $("exerciseList").addEventListener("click", e => {
-    const btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    const card = btn.closest(".ex-card");
-    const exId = card.dataset.exid;
-    const f = fitness.getState();
-    const item = currentItems(f).find(i => i.exId === exId);
-    const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
-    const stored = (w && w.sets[exId]) || [];
-    const slots = card.querySelectorAll(".ex-set").length;
-
-    if (btn.dataset.action === "add-set") {
-      ui.extraSlots[slotKey(exId)] = slots + 1;
-      renderExerciseList();
-      const newCard = $("exerciseList").querySelector(`.ex-card[data-exid="${CSS.escape(exId)}"]`);
-      const inputs = newCard.querySelectorAll('input[data-field="kg"]');
-      inputs[inputs.length - 1].focus();
-    } else if (btn.dataset.action === "remove-set") {
-      const idx = +btn.closest(".ex-set").dataset.idx;
-      ui.extraSlots[slotKey(exId)] = Math.max(item ? item.sets : 0, slots - 1);
-      if (idx < stored.length) fitness.removeSet({ date: ui.workoutDate, templateId: ui.templateId, exerciseId: exId, setIndex: idx });
-      else renderExerciseList();
-    }
+  // Enter: kg -> Wdh. -> nächster Satz; nach dem letzten Feld Tastatur zu
+  body.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || !e.target.matches("input[data-field]")) return;
+    e.preventDefault();
+    const inputs = [...e.target.closest(".ex").querySelectorAll("input[data-field]")];
+    const i = inputs.indexOf(e.target);
+    if (inputs[i + 1]) inputs[i + 1].focus(); else e.target.blur();
   });
 
-  $("recentWorkoutList").addEventListener("click", e => {
-    const btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    const row = btn.closest("[data-key]");
-    const key = row.dataset.key;
-    const f = fitness.getState();
-    const w = f.workouts[key];
-    const action = btn.dataset.action;
+  // Tastatur zu (Feld verlassen) und Übung fertig -> weiter zur nächsten
+  body.addEventListener("focusout", e => {
+    if (!e.target.matches("input[data-field]")) return;
+    const ex = e.target.closest(".ex");
+    setTimeout(() => {
+      if (currentSheetId() !== "training" || !ex.isConnected) return;
+      const a = document.activeElement;
+      if (a && ex.contains(a)) return;
+      if (ex.dataset.st === "done" && ui.openEx === ex.dataset.exid && !(a && a.closest && a.closest(".ex"))) advanceFrom(ex.dataset.exid);
+    }, 450);
+  });
 
-    if (action === "open" && w) {
-      ui.workoutDate = w.date;
-      ui.templateId = w.templateId;
-      renderWorkout();
-      $("exerciseList").scrollIntoView({ behavior: "smooth", block: "start" });
-    } else if (action === "move-toggle") {
-      ui.moveOpenKey = ui.moveOpenKey === key ? null : key;
-      renderRecentWorkouts();
-    } else if (action === "move-confirm" && w) {
-      const toDate = row.querySelector('input[type="date"]').value;
-      const toTemplateId = row.querySelector("select").value;
-      if (!isDayKey(toDate)) return flash(row.querySelector('input[type="date"]'));
-      let res = fitness.moveWorkout({ fromKey: key, toDate, toTemplateId });
-      if (res.conflict) {
-        if (!confirm(`Am ${formatLong(toDate)} gibt es schon „${templateLabel(f, toTemplateId)}“. Zusammenführen? (Bereits vorhandene Übungen am Zieltag bleiben erhalten.)`)) return;
-        res = fitness.moveWorkout({ fromKey: key, toDate, toTemplateId, merge: true });
+  body.addEventListener("click", e => {
+    const tab = e.target.closest(".seg [data-tpl]");
+    if (tab) { ui.templateId = tab.dataset.tpl; ui.openEx = firstOpenExercise(fitness.getState()); renderTrainingBody(); return; }
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const ex = b.closest(".ex");
+    const exId = ex && ex.dataset.exid;
+    const base = { date: ui.workoutDate, templateId: ui.templateId, exerciseId: exId, defaultSets: ex ? +ex.dataset.sets : 0 };
+    try {
+      switch (b.dataset.act) {
+        case "day-prev": setWorkoutDate(addDays(ui.workoutDate, -1)); break;
+        case "day-next": setWorkoutDate(addDays(ui.workoutDate, 1)); break;
+        case "day-today": setWorkoutDate(todayKey()); break;
+        case "toggle-ex":
+          ui.openEx = ui.openEx === exId ? null : exId;
+          renderTrainingBody();
+          if (ui.openEx) scrollToExercise(exId);
+          break;
+        case "add-set": {
+          fitness.addSetRow(base);
+          const rows = body.querySelectorAll(`.ex[data-exid="${CSS.escape(exId)}"] input[data-field='kg']`);
+          if (rows.length) rows[rows.length - 1].focus();
+          break;
+        }
+        case "remove-set": {
+          const wasDone = ex.dataset.st === "done";
+          fitness.removeSetRow({ ...base, setIndex: +b.closest(".set").dataset.idx });
+          const now = body.querySelector(`.ex[data-exid="${CSS.escape(exId)}"]`);
+          if (!wasDone && now && now.dataset.st === "done") { haptic(); setTimeout(() => { if (ui.openEx === exId) advanceFrom(exId); }, 350); }
+          break;
+        }
+        case "skip": fitness.skipExercise(base); advanceFrom(exId); break;
+        case "unskip": fitness.unskipExercise(base); break;
+        case "copy": {
+          const r = fitness.copyPrevious(base);
+          if (r.copied) { haptic(); toast(`${r.copied} ${r.copied === 1 ? "Satz" : "Sätze"} übernommen · anpassen falls nötig`); }
+          break;
+        }
+        default: recentAction(b);
       }
-      ui.moveOpenKey = null;
-      ui.workoutDate = toDate;
-      ui.templateId = toTemplateId;
-      renderWorkout();
-    } else if (action === "delete" && w) {
-      if (confirm(`Training vom ${formatLong(w.date)} (${templateLabel(f, w.templateId)}) komplett löschen?`)) fitness.deleteWorkout(key);
-    }
+    } catch (err) { toast(err.message, "err"); }
   });
 }
 
-function renderRecentWorkouts() {
-  const f = fitness.getState();
-  const list = Object.entries(f.workouts)
-    .filter(([, w]) => workoutHasData(w))
-    .sort((a, b) => b[1].date.localeCompare(a[1].date) || a[1].templateId.localeCompare(b[1].templateId))
-    .slice(0, 12);
-
-  $("recentWorkoutList").innerHTML = list.length ? list.map(([key, w]) => {
+/* ---------- Letzte Trainings ---------- */
+function recentHTML(f) {
+  const list = Object.entries(f.workouts).filter(([, w]) => workoutHasData(w))
+    .sort((a, b) => b[1].date.localeCompare(a[1].date) || a[1].templateId.localeCompare(b[1].templateId)).slice(0, 12);
+  if (!list.length) return `<div class="empty">Noch keine Trainings geloggt.</div>`;
+  return `<div class="rows" style="border:0;border-radius:0">${list.map(([key, w]) => {
     const n = Object.keys(w.sets).filter(id => exerciseLogged(w, id)).length;
     const open = ui.moveOpenKey === key;
-    return `
-      <div class="fx-workout-row ${open ? "open" : ""}" data-key="${esc(key)}">
-        <div class="fx-row">
-          <button type="button" class="fx-row-main" data-action="open">${formatLong(w.date)} · ${esc(templateLabel(f, w.templateId))}</button>
-          <span class="fx-row-val">${n} Üb.</span>
-          <button type="button" class="fx-chip" data-action="move-toggle">Datum ändern</button>
-          <button type="button" class="fx-icon" data-action="delete" aria-label="Training löschen">✕</button>
-        </div>
-        ${open ? `
-        <div class="fx-move">
-          <input type="date" value="${w.date}">
-          <select>${f.templates.map(t => `<option value="${esc(t.id)}" ${t.id === w.templateId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
-          <button type="button" class="fx-primary" data-action="move-confirm">Verschieben</button>
-        </div>` : ""}
-      </div>`;
-  }).join("") : `<p class="fx-empty">Noch keine Trainings geloggt.</p>`;
+    return `<div data-key="${esc(key)}">
+      <div class="r">
+        <button type="button" class="r-main" data-act="w-open">${DOW_SHORT[weekday(w.date)]} ${formatDate(w.date)} · ${esc(templateLabel(f, w.templateId))}</button>
+        <span class="r-val">${n} Üb.</span>
+        <button type="button" class="ico" data-act="w-move" aria-label="Datum ändern">⇄</button>
+        <button type="button" class="ico del" data-act="w-del" aria-label="Löschen">✕</button>
+      </div>
+      ${open ? `<div class="form-row" style="padding:0 8px 10px">
+        <input type="date" class="field" value="${w.date}" max="${todayKey()}">
+        <select class="field">${f.templates.map(t => `<option value="${esc(t.id)}" ${t.id === w.templateId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
+        <button type="button" class="btn small primary" data-act="w-move-ok">OK</button>
+      </div>` : ""}
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function recentAction(b) {
+  const row = b.closest("[data-key]"); if (!row) return;
+  const key = row.dataset.key;
+  const f = fitness.getState();
+  const w = f.workouts[key];
+  if (!w) return;
+  switch (b.dataset.act) {
+    case "w-open":
+      ui.workoutDate = w.date; ui.templateId = w.templateId; ui.moveOpenKey = null;
+      ui.openEx = firstOpenExercise(f); renderTrainingBody();
+      document.getElementById("sheetBody").scrollTo({ top: 0, behavior: "smooth" });
+      break;
+    case "w-move": ui.moveOpenKey = ui.moveOpenKey === key ? null : key; renderTrainingBody(); break;
+    case "w-move-ok": {
+      const toDate = row.querySelector("input[type=date]").value;
+      const toTemplateId = row.querySelector("select").value;
+      if (!isDayKey(toDate) || toDate > todayKey()) return flash(row.querySelector("input[type=date]"));
+      let res = fitness.moveWorkout({ fromKey: key, toDate, toTemplateId });
+      if (res.conflict) {
+        if (!confirm(`Am ${formatLong(toDate)} gibt es schon „${templateLabel(f, toTemplateId)}“. Zusammenführen?`)) return;
+        res = fitness.moveWorkout({ fromKey: key, toDate, toTemplateId, merge: true });
+      }
+      ui.moveOpenKey = null; ui.workoutDate = toDate; ui.templateId = toTemplateId;
+      renderTrainingBody(); toast(`Verschoben auf ${formatShort(toDate)}`);
+      break;
+    }
+    case "w-del":
+      if (confirm(`Training vom ${formatLong(w.date)} komplett löschen?`)) fitness.deleteWorkout(key);
+      break;
+  }
 }
 
 /* ============================================================
-   ÜBUNGEN & VORLAGEN VERWALTEN
+   PANEL: VORLAGEN VERWALTEN
    ============================================================ */
-function renderManage() {
+export function openManage() {
   const f = fitness.getState();
   if (!ui.manageTpl || !findTemplate(f, ui.manageTpl)) ui.manageTpl = findTemplate(f, ui.templateId) ? ui.templateId : f.templates[0].id;
-  const tpl = findTemplate(f, ui.manageTpl);
-  const notInTpl = f.exercises.filter(ex => !tpl.items.some(i => i.exId === ex.id));
-
-  $("manageBox").innerHTML = `
-    <div class="mg-row">
-      <label class="mg-label">Vorlage
-        <select id="mgTplSelect">${f.templates.map(t => `<option value="${esc(t.id)}" ${t.id === tpl.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
-      </label>
-      <label class="mg-label">Name
-        <input id="mgTplName" type="text" value="${esc(tpl.name)}">
-      </label>
-    </div>
-    <div class="mg-row mg-actions">
-      <button type="button" class="fx-chip" data-mg="add-tpl">+ Neue Vorlage</button>
-      <button type="button" class="fx-chip" data-mg="copy-tpl">Vorlage kopieren</button>
-      <button type="button" class="fx-chip danger" data-mg="del-tpl" ${f.templates.length <= 1 ? "disabled" : ""}>Vorlage löschen</button>
-      <label class="mg-inline">Ziel pro Woche <input id="mgWeekly" type="text" inputmode="numeric" value="${f.weeklyTarget}"></label>
-    </div>
-
-    <div class="mg-list">
-      <div class="mg-list-head"><span>Reihenfolge</span><span>Übung (Name gilt überall)</span><span>Sätze</span><span></span></div>
-      ${tpl.items.map((it, i) => `
-        <div class="mg-item" data-idx="${i}" data-exid="${esc(it.exId)}">
-          <span class="mg-move">
-            <button type="button" class="fx-icon" data-mg="up" ${i === 0 ? "disabled" : ""} aria-label="Nach oben">▲</button>
-            <button type="button" class="fx-icon" data-mg="down" ${i === tpl.items.length - 1 ? "disabled" : ""} aria-label="Nach unten">▼</button>
-          </span>
-          <input type="text" class="mg-name" value="${esc(exerciseName(f, it.exId))}" aria-label="Übungsname">
-          <input type="text" inputmode="numeric" class="mg-sets" value="${it.sets}" aria-label="Ziel-Sätze">
-          <button type="button" class="fx-icon" data-mg="remove" aria-label="Aus Vorlage entfernen">✕</button>
-        </div>`).join("") || `<p class="fx-empty">Noch keine Übungen in dieser Vorlage.</p>`}
-    </div>
-
-    <div class="mg-add">
-      ${notInTpl.length ? `
-      <div class="mg-row">
-        <select id="mgExisting">${notInTpl.map(ex => `<option value="${esc(ex.id)}">${esc(ex.name)}</option>`).join("")}</select>
-        <button type="button" class="fx-chip" data-mg="add-existing">Hinzufügen</button>
-      </div>` : ""}
-      <div class="mg-row">
-        <input id="mgNewName" type="text" placeholder="Neue Übung, z.B. Beinpresse">
-        <button type="button" class="fx-primary" data-mg="add-new">Anlegen</button>
-      </div>
-    </div>
-    <p class="fx-hint">Entfernen löscht keinen Verlauf. Die Daten bleiben im Fortschritts-Chart, und du kannst die Übung jederzeit wieder hinzufügen.</p>`;
+  openSheet({
+    id: "manage", cat: "Training", title: "Vorlagen", sub: "Übungen, Reihenfolge, Sätze", full: true,
+    back: () => openTraining({ date: ui.workoutDate, templateId: ui.templateId }),
+    bind: bindManage, render: renderManage,
+  });
 }
 
-function bindManageEvents() {
-  const box = $("manageBox");
+function renderManage(body) {
+  const f = fitness.getState();
+  const tpl = findTemplate(f, ui.manageTpl) || f.templates[0];
+  ui.manageTpl = tpl.id;
+  const notIn = f.exercises.filter(ex => !tpl.items.some(i => i.exId === ex.id));
+  const accOpen = !!body.querySelector("details[open]");
+  body.innerHTML = `
+    <div class="seg">${f.templates.map(t => `<button type="button" data-mtpl="${esc(t.id)}" class="${t.id === tpl.id ? "on" : ""}">${esc(t.name)}</button>`).join("")}</div>
+    <div class="psec">Übungen · ${tpl.items.length}</div>
+    <div class="rows">
+      ${tpl.items.map((it, i) => `
+        <div class="mg-item" data-idx="${i}" data-exid="${esc(it.exId)}">
+          <button type="button" class="ico" data-mg="up" ${i === 0 ? "disabled" : ""} aria-label="Nach oben">▲</button>
+          <button type="button" class="ico" data-mg="down" ${i === tpl.items.length - 1 ? "disabled" : ""} aria-label="Nach unten">▼</button>
+          <input class="field" data-mg-name value="${esc(exerciseName(f, it.exId))}" aria-label="Übungsname">
+          <input class="field sets" data-mg-sets inputmode="numeric" value="${it.sets}" aria-label="Geplante Sätze">
+          <button type="button" class="ico del" data-mg="remove" aria-label="Aus Vorlage entfernen">✕</button>
+        </div>`).join("") || `<div class="empty">Noch keine Übungen.</div>`}
+    </div>
+    <p class="hint">Name gilt in allen Vorlagen. Zahl rechts = geplante Sätze. Entfernen löscht keinen Verlauf.</p>
+    <div class="psec">Hinzufügen</div>
+    <div class="stack">
+      ${notIn.length ? `<div class="form-row" style="grid-template-columns:minmax(0,1fr) auto">
+        <select class="field" data-mg-existing aria-label="Vorhandene Übung">${notIn.map(ex => `<option value="${esc(ex.id)}">${esc(ex.name)}</option>`).join("")}</select>
+        <button type="button" class="btn small" data-mg="add-existing">+</button></div>` : ""}
+      <form class="form-row" data-mg-form style="grid-template-columns:minmax(0,1fr) auto">
+        <input class="field" data-mg-new placeholder="Neue Übung, z.B. Beinpresse" enterkeyhint="done">
+        <button type="submit" class="btn small primary">Anlegen</button>
+      </form>
+    </div>
+    <details class="acc" ${accOpen ? "open" : ""}>
+      <summary>Vorlage bearbeiten</summary>
+      <div class="acc-body stack">
+        <label class="lbl-field">Name der Vorlage<input class="field" data-mg-tplname value="${esc(tpl.name)}"></label>
+        <label class="lbl-field">Trainings pro Woche (Ziel)<input class="field" data-mg-weekly inputmode="numeric" value="${f.weeklyTarget}"></label>
+        <button type="button" class="btn ghost" data-mg="add-tpl">+ Neue Vorlage</button>
+        <button type="button" class="btn ghost" data-mg="copy-tpl">Vorlage kopieren</button>
+        <button type="button" class="btn danger" data-mg="del-tpl" ${f.templates.length <= 1 ? "disabled" : ""}>Vorlage löschen</button>
+      </div>
+    </details>`;
+}
 
-  box.addEventListener("change", e => {
+function bindManage(body) {
+  body.addEventListener("change", e => {
     const el = e.target;
-    const item = el.closest(".mg-item");
-    if (el.id === "mgTplSelect") { ui.manageTpl = el.value; renderManage(); return; }
-    if (el.id === "mgTplName") { fitness.renameTemplate(ui.manageTpl, el.value); return; }
-    if (el.id === "mgWeekly") { fitness.setWeeklyTarget(parseNum(el.value)); return; }
-    if (item && el.classList.contains("mg-name")) { fitness.renameExercise(item.dataset.exid, el.value); return; }
-    if (item && el.classList.contains("mg-sets")) { fitness.setTargetSets(ui.manageTpl, +item.dataset.idx, parseNum(el.value)); return; }
+    const row = el.closest(".mg-item");
+    if (el.matches("[data-mg-name]")) fitness.renameExercise(row.dataset.exid, el.value);
+    else if (el.matches("[data-mg-sets]")) fitness.setTargetSets(ui.manageTpl, +row.dataset.idx, parseNum(el.value));
+    else if (el.matches("[data-mg-tplname]")) fitness.renameTemplate(ui.manageTpl, el.value);
+    else if (el.matches("[data-mg-weekly]")) fitness.setWeeklyTarget(parseNum(el.value));
   });
-
-  box.addEventListener("click", e => {
-    const btn = e.target.closest("button[data-mg]");
-    if (!btn || btn.disabled) return;
-    const action = btn.dataset.mg;
-    const item = btn.closest(".mg-item");
-    const idx = item ? +item.dataset.idx : -1;
+  body.addEventListener("submit", e => {
+    e.preventDefault();
+    const input = body.querySelector("[data-mg-new]");
+    if (!input.value.trim()) return flash(input);
+    fitness.addExercise(input.value, ui.manageTpl, 3);
+    toast("Übung angelegt");
+  });
+  body.addEventListener("click", e => {
+    const t = e.target.closest("[data-mtpl]");
+    if (t) { ui.manageTpl = t.dataset.mtpl; refreshSheet(); return; }
+    const b = e.target.closest("[data-mg]");
+    if (!b || b.disabled) return;
+    const row = b.closest(".mg-item");
+    const idx = row ? +row.dataset.idx : -1;
     const f = fitness.getState();
-
-    switch (action) {
-      case "up": fitness.moveExercise(ui.manageTpl, idx, -1); break;
-      case "down": fitness.moveExercise(ui.manageTpl, idx, 1); break;
-      case "remove": fitness.removeExerciseFromTemplate(ui.manageTpl, idx); break;
-      case "add-existing": fitness.addExerciseToTemplate(ui.manageTpl, $("mgExisting").value, 3); break;
-      case "add-new": {
-        const name = $("mgNewName").value.trim();
-        if (!name) return flash($("mgNewName"));
-        fitness.addExercise(name, ui.manageTpl, 3);
-        break;
+    try {
+      switch (b.dataset.mg) {
+        case "up": fitness.moveExercise(ui.manageTpl, idx, -1); break;
+        case "down": fitness.moveExercise(ui.manageTpl, idx, 1); break;
+        case "remove": fitness.removeExerciseFromTemplate(ui.manageTpl, idx); break;
+        case "add-existing": fitness.addExerciseToTemplate(ui.manageTpl, body.querySelector("[data-mg-existing]").value, 3); break;
+        case "add-tpl":
+        case "copy-tpl": {
+          const name = prompt("Name der neuen Vorlage:", b.dataset.mg === "copy-tpl" ? `${findTemplate(f, ui.manageTpl).name} (Kopie)` : `Training ${f.templates.length + 1}`);
+          if (name) { ui.manageTpl = fitness.addTemplate(name, b.dataset.mg === "copy-tpl" ? ui.manageTpl : null); refreshSheet(); }
+          break;
+        }
+        case "del-tpl": {
+          const tp = findTemplate(f, ui.manageTpl);
+          if (!confirm(`Vorlage „${tp.name}“ löschen? Geloggte Trainings bleiben erhalten.`)) return;
+          ui.manageTpl = null;
+          if (ui.templateId === tp.id) ui.templateId = null;
+          fitness.deleteTemplate(tp.id);
+          if (!ui.templateId) ui.templateId = fitness.getState().templates[0].id;
+          break;
+        }
       }
-      case "add-tpl":
-      case "copy-tpl": {
-        const name = prompt("Name der neuen Vorlage:", action === "copy-tpl" ? `${findTemplate(f, ui.manageTpl).name} (Kopie)` : `Training ${f.templates.length + 1}`);
-        if (!name) return;
-        ui.manageTpl = fitness.addTemplate(name, action === "copy-tpl" ? ui.manageTpl : null);
-        break;
-      }
-      case "del-tpl": {
-        const t = findTemplate(f, ui.manageTpl);
-        if (!confirm(`Vorlage „${t.name}“ löschen? Bereits geloggte Trainings bleiben erhalten.`)) return;
-        fitness.deleteTemplate(ui.manageTpl);
-        ui.manageTpl = null;
-        if (ui.templateId === t.id) ui.templateId = fitness.getState().templates[0].id;
-        break;
-      }
-    }
+    } catch (err) { toast(err.message, "err"); }
   });
 }
 
 /* ============================================================
-   FORTSCHRITT PRO ÜBUNG + PLATEAU-RADAR
+   PANEL: FORTSCHRITT
    ============================================================ */
-function exerciseOptions(f) {
-  const order = [];
-  f.templates.forEach(t => t.items.forEach(i => { if (!order.includes(i.exId)) order.push(i.exId); }));
-  f.exercises.forEach(ex => { if (!order.includes(ex.id)) order.push(ex.id); });
-  return order.map(id => ({ id, name: exerciseName(f, id), n: exerciseSeries(f, id).length }))
-    .filter(o => o.n > 0 || f.templates.some(t => t.items.some(i => i.exId === o.id)));
+export function openProgress(exId) {
+  if (exId) ui.exerciseId = exId;
+  openSheet({ id: "progress", cat: "Analyse", title: "Fortschritt", sub: "e1RM, Trend und Plateaus", bind: bindProgress, render: renderProgress });
 }
 
-function renderProgress() {
+function renderProgress(body) {
   const f = fitness.getState();
-  const opts = exerciseOptions(f);
-  if (!opts.length) return;
-  if (!ui.exerciseId || !opts.some(o => o.id === ui.exerciseId)) ui.exerciseId = (opts.find(o => o.n > 0) || opts[0]).id;
-
-  $("exerciseSelect").innerHTML = opts
-    .map(o => `<option value="${esc(o.id)}" ${o.id === ui.exerciseId ? "selected" : ""}>${esc(o.name)}${o.n ? ` (${o.n})` : " – keine Daten"}</option>`).join("");
-
-  $("metricToggle").innerHTML = Object.entries(METRICS)
-    .map(([k, m]) => `<button type="button" data-metric="${k}" class="${k === ui.metric ? "active" : ""}">${m.label}</button>`).join("");
-  rangeButtons("exRange", ui.exRange);
-  $("metricHelp").textContent = METRICS[ui.metric].help;
-
+  const ids = exerciseIdsWithData(f);
+  if (!ids.length) {
+    body.innerHTML = `<div class="empty" style="margin-top:30px">Sobald du Sätze loggst, erscheinen hier Charts und das Plateau-Radar.</div>`;
+    return;
+  }
+  if (!ui.exerciseId || !ids.includes(ui.exerciseId)) ui.exerciseId = ids[0];
   const series = exerciseSeries(f, ui.exerciseId);
-  const { visible } = renderExerciseChart($("exChart"), {
+  const m = METRICS[ui.metric];
+  const status = plateauStatus(series);
+  const rank = { plateau: 0, decline: 1, progress: 2, insufficient: 3 };
+  const radar = ids.map(id => ({ id, name: exerciseName(f, id), st: plateauStatus(exerciseSeries(f, id)) }))
+    .sort((a, b) => rank[a.st.status] - rank[b.st.status] || a.name.localeCompare(b.name));
+  const stCls = { progress: "ok", plateau: "warn", decline: "bad", insufficient: "" }[status.status];
+  const pr = series.reduce((a, b) => (b.e1rm > a.e1rm ? b : a));
+  const last = series[series.length - 1];
+
+  body.innerHTML = `
+    <select class="field" data-p-ex aria-label="Übung">${ids.map(id => `<option value="${esc(id)}" ${id === ui.exerciseId ? "selected" : ""}>${esc(exerciseName(f, id))}</option>`).join("")}</select>
+    <div class="seg-row">
+      <div class="seg" data-seg="metric">${Object.entries(METRICS).map(([k, x]) => `<button type="button" data-metric="${k}" class="${k === ui.metric ? "on" : ""}">${x.label}</button>`).join("")}</div>
+      <div class="seg" data-seg="exrange">${rangeButtons(ui.exRange)}</div>
+    </div>
+    <div class="chart-box lg"><canvas id="exChart"></canvas></div>
+    <p class="hint">${esc(m.help)}</p>
+    <div class="kv" style="margin-top:12px">
+      <div><b>Bestwert</b><span>${pr.e1rm.toFixed(1)} kg</span><em>${pr.bestSet.kg ?? 0}×${pr.bestSet.reps} · ${formatShort(pr.date)}</em></div>
+      <div><b>Zeitraum</b><span data-change>--</span><em>${esc(m.label)}</em></div>
+      <div><b>Zuletzt</b><span>${formatShort(last.date)}</span><em>${esc(setsText(last.sets))}</em></div>
+    </div>
+    <div class="callout ${stCls}"><b>${esc(status.label)}</b>${esc(status.detail)}</div>
+    <div class="psec">Plateau-Radar</div>
+    <div class="rows radar">${radar.map(r => {
+      const c = { progress: "var(--ok)", plateau: "var(--warn)", decline: "var(--bad)", insufficient: "var(--dim)" }[r.st.status];
+      return `<div class="r ${r.id === ui.exerciseId ? "on" : ""}" data-ex="${esc(r.id)}">
+        <span class="r-main">${esc(r.name)}</span>
+        <span class="r-val">${r.st.weeklyPct != null ? fmtSigned(r.st.weeklyPct, 1) + "%/W" : ""}</span>
+        <span class="badge" style="color:${c}">${esc(r.st.label)}</span></div>`;
+    }).join("")}</div>`;
+
+  const { visible } = renderExerciseChart(body.querySelector("#exChart"), {
     series, metric: ui.metric, range: ui.exRange, accent: getAccent(), templateName: id => templateLabel(f, id),
   });
-
-  const status = plateauStatus(series);
-  const m = METRICS[ui.metric];
-  let prHTML = "--", changeHTML = "--", lastHTML = "--";
-  if (series.length) {
-    const pr = series.reduce((a, b) => (b.e1rm > a.e1rm ? b : a));
-    prHTML = `${pr.e1rm.toFixed(1)} kg <small>e1RM · ${pr.bestSet.kg ?? 0}×${pr.bestSet.reps} am ${formatShort(pr.date)}</small>`;
-    const last = series[series.length - 1];
-    lastHTML = `${formatShort(last.date)} <small>${last.sets.map(s => `${s.kg ?? 0}×${s.reps}`).join(" · ")}</small>`;
-  }
   if (visible.length >= 2) {
-    const first = m.get(visible[0]), last = m.get(visible[visible.length - 1]);
-    const pct = first ? ((last - first) / first) * 100 : 0;
-    changeHTML = `<span class="${pct >= 0 ? "pos" : "neg"}">${fmtSigned(pct, 1)} %</span> <small>${m.label} im Zeitraum</small>`;
+    const a = m.get(visible[0]), z = m.get(visible[visible.length - 1]);
+    const pct = a ? ((z - a) / a) * 100 : 0;
+    const el = body.querySelector("[data-change]");
+    el.textContent = `${fmtSigned(pct, 1)} %`;
+    el.style.color = pct >= 0 ? "var(--ok)" : "var(--bad)";
   }
-  $("exStats").innerHTML = `
-    <div class="fx-stat"><span class="stat-label">Bestwert</span><span class="fx-stat-val">${prHTML}</span></div>
-    <div class="fx-stat"><span class="stat-label">Veränderung</span><span class="fx-stat-val">${changeHTML}</span></div>
-    <div class="fx-stat"><span class="stat-label">Zuletzt</span><span class="fx-stat-val">${lastHTML}</span></div>
-    <div class="fx-status status-${status.status}"><b>${status.label}</b> ${esc(status.detail)}</div>`;
-
-  renderRadar(f, opts);
 }
 
-function renderRadar(f, opts) {
-  const rank = { plateau: 0, decline: 1, progress: 2, insufficient: 3 };
-  const rows = opts.filter(o => o.n > 0)
-    .map(o => ({ ...o, st: plateauStatus(exerciseSeries(f, o.id)) }))
-    .sort((a, b) => rank[a.st.status] - rank[b.st.status] || a.name.localeCompare(b.name));
-  $("plateauRadar").innerHTML = rows.length ? rows.map(r => `
-    <button type="button" class="fx-radar-row ${r.id === ui.exerciseId ? "active" : ""}" data-exid="${esc(r.id)}">
-      <span class="fx-radar-name">${esc(r.name)}</span>
-      <span class="fx-badge status-${r.st.status}">${r.st.label}</span>
-      <span class="fx-radar-trend">${r.st.weeklyPct != null ? fmtSigned(r.st.weeklyPct, 1) + " %/W" : ""}</span>
-    </button>`).join("") : `<p class="fx-empty">Sobald Übungen geloggt sind, siehst du hier, wo es stockt.</p>`;
-}
-
-function bindProgressEvents() {
-  $("exerciseSelect").addEventListener("change", e => { ui.exerciseId = e.target.value; renderProgress(); });
-  $("metricToggle").addEventListener("click", e => {
-    const b = e.target.closest("button[data-metric]");
-    if (!b) return;
-    ui.metric = b.dataset.metric;
-    renderProgress();
-  });
-  $("exRange").addEventListener("click", e => {
-    const b = e.target.closest("button[data-range]");
-    if (!b) return;
-    ui.exRange = b.dataset.range;
-    renderProgress();
-  });
-  $("plateauRadar").addEventListener("click", e => {
-    const b = e.target.closest(".fx-radar-row");
-    if (!b) return;
-    ui.exerciseId = b.dataset.exid;
-    renderProgress();
-    $("exChart").scrollIntoView({ behavior: "smooth", block: "center" });
+function bindProgress(body) {
+  body.addEventListener("change", e => { if (e.target.matches("[data-p-ex]")) { ui.exerciseId = e.target.value; refreshSheet(); } });
+  body.addEventListener("click", e => {
+    const mb = e.target.closest("[data-metric]"); if (mb) { ui.metric = mb.dataset.metric; refreshSheet(); return; }
+    const rb = e.target.closest("[data-seg='exrange'] button"); if (rb) { ui.exRange = rb.dataset.range; refreshSheet(); return; }
+    const row = e.target.closest("[data-ex]");
+    if (row) { ui.exerciseId = row.dataset.ex; refreshSheet(); body.scrollTo({ top: 0, behavior: "smooth" }); }
   });
 }
 
-/* ---------------- kleine Helfer ---------------- */
+/* ---------------- Helfer ---------------- */
+function rangeButtons(active) {
+  return Object.entries(RANGES).map(([k, r]) => `<button type="button" data-range="${k}" class="${k === active ? "on" : ""}">${r.label}</button>`).join("");
+}
 function flash(el) {
   if (!el) return;
   el.classList.add("invalid");
   el.focus();
-  setTimeout(() => el.classList.remove("invalid"), 1600);
+  setTimeout(() => el.classList.remove("invalid"), 1500);
 }
-

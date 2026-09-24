@@ -2,6 +2,14 @@
 
 Persönliches Life-Dashboard im HUD/Terminal-Look. Installierbar als PWA, Login und Daten über Firebase (funktioniert auch offline).
 
+## Was neu ist (v3.2 · NEXUS-Look)
+
+- **Neues Design** im Stil von NEXUS: Glass-Kacheln mit Neon-Kante, Orbitron + JetBrains Mono, Grid/Scanlines/Sweep im Hintergrund, Boot-Sequenz, Reticle beim Antippen. Akzentfarbe unter Einstellungen wählbar.
+- **Infos erst beim Antippen:** Die Startseite zeigt pro Bereich nur eine Kennzahl. Details öffnen sich im Panel (Handy: Bottom-Sheet, nach unten wischen oder Zurück-Geste schliesst; Desktop: rechts).
+- **Training als Akkordeon:** immer nur eine Übung offen, nach dem letzten Satz automatisch die nächste. Jede Satz-Zeile lässt sich entfernen, auch geplante (1 statt 2 Sätze → Übung gilt als erledigt). „+ Satz“ und „Überspringen“ werden gespeichert. „Übernehmen“ füllt die Werte vom letzten Mal ein.
+- **Terminal** (Knopf `>_`): `gewicht 78.6 [gestern]`, `status`, `training [nr]`, `plateau`, `todo <text>`, `theme <farbe>`, `help`.
+- **Logik-Fixes:** keine Einträge in der Zukunft; Projekt-Fortschritt zählt Teilschritte; alle Teilschritte erledigt → Aufgabe erledigt; Sparziel-Bonus nur einmal; offene Aufgaben früherer Tage „nach heute holen“; Aufgaben im Planer umbenennbar.
+
 ## Was neu ist (v3 · Fitness)
 
 - **Datums-Bugfix:** Trainings werden über Datum + Vorlage gespeichert (`2026-09-24_s1`), nicht mehr über „aktuelle Woche + Session“. Nachtragen in vergangenen Wochen funktioniert, nichts springt mehr auf „heute“. Datumswerte sind reine `YYYY-MM-DD`-Strings, gerechnet wird zeitzonenfrei (`js/dates.js`). Alte Duplikate werden beim ersten Start automatisch zusammengeführt.
@@ -97,12 +105,19 @@ Die App hält alles in einem `data`-Objekt; `js/store.js` bildet es auf diese Do
 silvanos/
 ├── index.html
 ├── style.css
-├── app.js                 # ES-Modul: Login-Ablauf, Projekte, Kalender, Theme
+├── app.js                 # verbindet: Login, Kacheln, Panels, Einstellungen, Terminal-Befehle, Boot
 ├── firestore.rules        # Sicherheitsregeln (in Firebase Console einfügen)
 ├── js/
 │   ├── firebase.js        # Firebase-SDK + Config (einzige Stelle)
 │   ├── store.js           # data <-> Firestore-Dokumente, Diff-Speichern, Live-Updates
 │   ├── legacy.js          # alte lokale Daten für die Migration finden
+│   ├── core.js            # gemeinsamer Kontext (Daten, Speichern, XP, Änderungs-Events)
+│   ├── projects.js        # Projekte: Befehle, Kacheln, Panel
+│   ├── calendar.js        # Tagesplaner: Befehle, Kachel, Panel
+│   ├── ui/
+│   │   ├── sheet.js       # Detail-Panel / Bottom-Sheet
+│   │   ├── fx.js          # Boot, Reticle, Toast, Sparkline, Ring
+│   │   └── terminal.js    # Terminal + Befehlsregister (runCommand)
 │   ├── dates.js           # zeitzonensichere Kalendertag-Logik
 │   └── fitness/
 │       ├── model.js       # Datenmodell, Migration, reine Mutationen

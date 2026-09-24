@@ -10,7 +10,9 @@
      exercises: [{ id, name }],                       // Übungs-Bibliothek
      templates: [{ id, name, items: [{ exId, sets }] }], // Trainings-Vorlagen
      workouts: {                                        // key = "YYYY-MM-DD_<templateId>"
-       "2026-09-24_s1": { date, templateId, sets: { <exId>: [{ kg, reps }] }, updatedAt }
+       "2026-09-24_s1": { date, templateId, sets: { <exId>: [{ kg, reps }] },
+                          slots?: { <exId>: n },   // Anzahl Satz-Zeilen, falls ≠ Vorlage (0 = übersprungen)
+                          updatedAt }
      },
      weights: { "2026-09-24": 78.6 },                   // key = Kalendertag
      plan: { startDate, startWeight, heightCm, startBf, creatineG, phases: [...] },
@@ -110,6 +112,22 @@ export const validSets = sets => (sets || []).filter(isValidSet);
 export const exerciseLogged = (workout, exId) => !!workout && validSets(workout.sets[exId]).length > 0;
 export const workoutHasData = w => !!w && Object.keys(w.sets).some(exId => exerciseLogged(w, exId));
 
+/** Wie viele Satz-Zeilen zeigt eine Übung in diesem Training? */
+export function slotCount(workout, exId, defaultSets) {
+  const stored = (workout && workout.sets[exId]) ? workout.sets[exId].length : 0;
+  const override = workout && workout.slots ? workout.slots[exId] : undefined;
+  return Math.max(override ?? defaultSets, stored);
+}
+
+/** "todo" | "partial" | "done" | "skipped" */
+export function exerciseStatus(workout, exId, defaultSets) {
+  const slots = slotCount(workout, exId, defaultSets);
+  const logged = workout ? validSets(workout.sets[exId]).length : 0;
+  if (slots === 0) return "skipped";
+  if (logged === 0) return "todo";
+  return logged >= slots ? "done" : "partial";
+}
+
 export const findExercise = (f, id) => f.exercises.find(e => e.id === id);
 export const findTemplate = (f, id) => f.templates.find(t => t.id === id);
 export const exerciseName = (f, id) => (findExercise(f, id) || { name: id }).name;
@@ -174,6 +192,8 @@ function sanitize(f) {
   // Workout-Keys müssen exakt zu date + templateId passen (Schutz gegen verschobene Daten)
   Object.entries(f.workouts).forEach(([key, w]) => {
     if (!w || !isDayKey(w.date) || !w.templateId) { delete f.workouts[key]; return; }
+    w.sets = w.sets && typeof w.sets === "object" ? w.sets : {};
+    if (w.slots && typeof w.slots !== "object") delete w.slots;
     const expected = workoutKey(w.date, w.templateId);
     if (expected !== key) {
       delete f.workouts[key];
@@ -188,6 +208,9 @@ function mergeWorkoutInto(target, source) {
   Object.entries(source.sets || {}).forEach(([exId, sets]) => {
     if (!validSets(target.sets[exId]).length) target.sets[exId] = sets;
   });
+  Object.entries(source.slots || {}).forEach(([exId, n]) => {
+    if (!target.slots || target.slots[exId] === undefined) { target.slots = target.slots || {}; target.slots[exId] = n; }
+  });
   target.updatedAt = Date.now();
 }
 
@@ -200,6 +223,7 @@ export function getWorkout(f, date, templateId) {
 
 function getOrCreateWorkout(f, date, templateId) {
   if (!isDayKey(date)) throw new Error("Ungültiges Datum: " + date);
+  if (date > todayKey()) throw new Error("Datum liegt in der Zukunft");
   const key = workoutKey(date, templateId);
   if (!f.workouts[key]) f.workouts[key] = { date, templateId, sets: {}, updatedAt: Date.now() };
   return f.workouts[key];
@@ -209,7 +233,13 @@ function cleanupExercise(f, w, exId) {
   const sets = w.sets[exId] || [];
   while (sets.length && isEmptySet(sets[sets.length - 1])) sets.pop();
   if (!sets.length) delete w.sets[exId];
-  if (!Object.keys(w.sets).length) delete f.workouts[workoutKey(w.date, w.templateId)];
+  if (w.slots && !Object.keys(w.slots).length) delete w.slots;
+  if (!Object.keys(w.sets).length && !w.slots) delete f.workouts[workoutKey(w.date, w.templateId)];
+}
+
+function setSlotOverride(w, exId, n, defaultSets) {
+  if (n === defaultSets) { if (w.slots) delete w.slots[exId]; }
+  else { w.slots = w.slots || {}; w.slots[exId] = n; }
 }
 
 /**
@@ -230,15 +260,43 @@ export function setSet(f, { date, templateId, exerciseId, setIndex, kg, reps }) 
   return { becameLogged: !before && after, becameEmpty: before && !after };
 }
 
-export function removeSet(f, { date, templateId, exerciseId, setIndex }) {
-  const w = getWorkout(f, date, templateId);
-  if (!w || !w.sets[exerciseId]) return { becameEmpty: false };
+/** Eine Satz-Zeile hinzufügen (wird gespeichert, bleibt nach Neustart). */
+export function addSetRow(f, { date, templateId, exerciseId, defaultSets }) {
+  const w = getOrCreateWorkout(f, date, templateId);
+  setSlotOverride(w, exerciseId, slotCount(w, exerciseId, defaultSets) + 1, defaultSets);
+  w.updatedAt = Date.now();
+  cleanupExercise(f, w, exerciseId);
+}
+
+/**
+ * Eine Satz-Zeile entfernen — egal ob leer oder ausgefüllt, geplant oder zusätzlich.
+ * Beispiel: Vorlage sagt 2 Sätze, du machst nur 1 -> zweite Zeile weg, Übung zählt als erledigt.
+ */
+export function removeSetRow(f, { date, templateId, exerciseId, setIndex, defaultSets }) {
+  const w = getOrCreateWorkout(f, date, templateId);
   const before = exerciseLogged(w, exerciseId);
-  w.sets[exerciseId].splice(setIndex, 1);
+  const visible = slotCount(w, exerciseId, defaultSets);
+  const sets = w.sets[exerciseId];
+  if (sets && setIndex < sets.length) sets.splice(setIndex, 1);
+  setSlotOverride(w, exerciseId, Math.max(0, visible - 1), defaultSets);
   w.updatedAt = Date.now();
   const after = exerciseLogged(w, exerciseId);
   cleanupExercise(f, w, exerciseId);
   return { becameEmpty: before && !after };
+}
+
+/** Übung in diesem Training überspringen (nur wenn noch nichts geloggt) bzw. wieder aufnehmen. */
+export function setSkipped(f, { date, templateId, exerciseId, skipped, defaultSets }) {
+  const w = getOrCreateWorkout(f, date, templateId);
+  if (skipped) {
+    if (exerciseLogged(w, exerciseId)) throw new Error("Übung hat schon Sätze — erst die Sätze entfernen");
+    delete w.sets[exerciseId];
+    setSlotOverride(w, exerciseId, 0, defaultSets);
+  } else {
+    setSlotOverride(w, exerciseId, defaultSets, defaultSets);
+  }
+  w.updatedAt = Date.now();
+  cleanupExercise(f, w, exerciseId);
 }
 
 /**
@@ -249,6 +307,7 @@ export function moveWorkout(f, { fromKey, toDate, toTemplateId, merge = false })
   const src = f.workouts[fromKey];
   if (!src) throw new Error("Training nicht gefunden");
   if (!isDayKey(toDate)) throw new Error("Ungültiges Datum: " + toDate);
+  if (toDate > todayKey()) throw new Error("Datum liegt in der Zukunft");
   const tpl = toTemplateId || src.templateId;
   const toKey = workoutKey(toDate, tpl);
   if (toKey === fromKey) return { key: toKey };
@@ -273,6 +332,7 @@ export function deleteWorkout(f, key) {
    ============================================================ */
 export function setWeight(f, date, kg) {
   if (!isDayKey(date)) throw new Error("Ungültiges Datum: " + date);
+  if (date > todayKey()) throw new Error("Datum liegt in der Zukunft");
   if (!(kg > 20 && kg < 400)) throw new Error("Unplausibles Gewicht: " + kg);
   const isNew = f.weights[date] == null;
   f.weights[date] = Math.round(kg * 10) / 10;
