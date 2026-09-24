@@ -16,11 +16,15 @@ import {
   courseStatus, currentPhase, plannedWeightAt, fmtSigned, METRICS,
 } from "./analytics.js";
 import { renderWeightChart, renderExerciseChart, RANGES } from "./charts.js";
+import { MUSCLES, WEEKLY_SET_TARGET, muscleOf, muscleSets, weekVolume, volumeHistory, streak, priorBest, isPR, prSetIndex, records, bodySVG } from "./gym.js";
+import { e1rm } from "./analytics.js";
 import { openSheet, refreshSheet, currentSheetId, setHeader } from "../ui/sheet.js";
 import { sparkline, esc, toast, haptic, ICONS } from "../ui/fx.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatLong, formatShort, formatDate, isDayKey, DOW_SHORT, weekday } from "../dates.js";
 
 const fmtKg = (n, d = 1) => (n == null ? "--.-" : n.toFixed(d));
+const fmtVol = v => Math.round(v).toLocaleString("de-CH");
+const fmtSets = n => `${Number.isInteger(n) ? n : n.toFixed(1)} Sätze`;
 const setsText = sets => sets.map(s => `${s.kg ?? 0}×${s.reps}`).join(" · ");
 
 const ui = {
@@ -48,7 +52,7 @@ export function initFitnessUI(options = {}) {
     if (sid === "training") {
       if (scope === "set") refreshExerciseHead(detail.exerciseId, true);
       else renderTrainingBody();
-    } else if (sid === "weight" || sid === "progress" || sid === "manage") {
+    } else if (sid === "weight" || sid === "progress" || sid === "manage" || sid === "muscles") {
       refreshSheet();
     }
   });
@@ -113,25 +117,54 @@ export function renderFitnessTiles() {
   const stCls = { on: "st-ok", slow: "st-warn", fast: "st-warn", nodata: "st-mute" }[course.state];
   const stTxt = { on: "im Kurs", slow: "zu langsam", fast: "zu schnell", nodata: "keine Daten" }[course.state];
   const todayLogged = f.weights[today] != null;
+  const lastEntry = weightEntries(f).slice(-1)[0];
   document.getElementById("tileWeight").innerHTML = `
     ${ICONS.weight}
     <span class="t-cat">Gewicht</span>
     <span class="t-big">${ref ? fmtKg(ref.avg) : "--.-"}<small>kg</small></span>
-    <span class="t-sub">${ref ? `Wochenschnitt KW ${isoWeek(ref.monday)}` : "Wochenschnitt"}</span>
-    <span class="t-foot">${todayLogged ? `<span class="t-state ${stCls}">${stTxt}</span>` : `<span class="t-state st-warn">heute wiegen</span>`}</span>
-    ${sparkline(weekly.slice(-8).map(w => w.avg))}`;
+    <span class="t-sub">${cur ? `Schnitt diese Woche` : ref ? `Letzter Schnitt: KW ${isoWeek(ref.monday)}` : "Noch keine Messung"}</span>
+    ${sparkline(weekly.slice(-8).map(w => w.avg))}
+    <span class="t-foot">${todayLogged ? `<span class="t-state ${stCls}">${stTxt}</span>`
+      : `<span class="t-state st-warn">heute wiegen</span>${lastEntry ? `<span class="t-muted">zuletzt ${formatShort(lastEntry.date)}</span>` : ""}`}</span>`;
 
   /* --- Fortschritt --- */
   const ids = exerciseIdsWithData(f);
   const stats = ids.map(id => plateauStatus(exerciseSeries(f, id)));
   const stuck = ids.filter((id, i) => stats[i].status === "plateau" || stats[i].status === "decline");
   const progress = stats.filter(s => s.status === "progress").length;
+  const measurable = stats.filter(s => s.status !== "insufficient").length;
   document.getElementById("tileProgress").innerHTML = `
     ${ICONS.progress}
     <span class="t-cat">Kraft</span>
-    <span class="t-big">${progress}<small>von ${ids.length}</small></span>
-    <span class="t-sub">Übungen werden stärker</span>
-    <span class="t-foot">${stuck.length ? `<span class="t-state st-warn">Stockt: ${esc(exerciseName(f, stuck[0]))}${stuck.length > 1 ? ` +${stuck.length - 1}` : ""}</span>` : ids.length ? `<span class="t-state st-ok">kein Plateau</span>` : `<span>Noch keine Daten</span>`}</span>`;
+    <span class="t-big">${measurable ? progress : "–"}<small>${measurable ? `von ${measurable}` : ""}</small></span>
+    <span class="t-sub">${measurable ? "Übungen werden stärker" : "Trend ab 4 Trainings pro Übung"}</span>
+    <span class="t-foot">${stuck.length ? `<span class="t-state st-warn">Stockt: ${esc(exerciseName(f, stuck[0]))}${stuck.length > 1 ? ` +${stuck.length - 1}` : ""}</span>`
+      : measurable ? `<span class="t-state st-ok">kein Plateau</span>`
+      : `<span class="t-state st-mute">sammelt Daten</span>`}</span>`;
+
+  /* --- Muskeln (diese Woche) --- */
+  const monday = mondayOf(today);
+  const ms = muscleSets(f, monday, addDays(monday, 6));
+  const lv = Object.fromEntries(Object.entries(ms).map(([g, n]) => [g, n / WEEKLY_SET_TARGET]));
+  const hit = Object.entries(ms).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const miss = Object.keys(MUSCLES).filter(g => ms[g] === 0);
+  document.getElementById("tileMuscle").innerHTML = `
+    <span class="t-cat">Muskeln</span>
+    ${bodySVG(lv, { labels: false, cls: "mini" })}
+    <span class="t-foot">${hit.length ? `<span class="t-state st-ok">${esc(MUSCLES[hit[0][0]])} ${fmtSets(hit[0][1])}</span>` : `<span class="t-state st-mute">diese Woche noch nichts</span>`}
+      ${hit.length && miss.length ? `<span class="t-muted">fehlt: ${esc(MUSCLES[miss[0]])}</span>` : ""}</span>`;
+
+  /* --- Volumen + Streak --- */
+  const vol = weekVolume(f, monday);
+  const hist = volumeHistory(f, 8, today);
+  const st = streak(f, today);
+  document.getElementById("tileVolume").innerHTML = `
+    <span class="t-cat">Volumen</span>
+    <span class="t-big">${fmtVol(vol)}<small>kg</small></span>
+    <span class="t-sub">bewegt diese Woche</span>
+    ${hist.some(v => v > 0) ? sparkline(hist) : ""}
+    <span class="t-foot">${st.weeks ? `<span class="t-state st-ember">🔥 ${st.weeks} ${st.weeks === 1 ? "Woche" : "Wochen"} Streak</span>`
+      : `<span class="t-state st-mute">Streak: ${st.left} Training${st.left === 1 ? "" : "s"} fehlen</span>`}</span>`;
 }
 
 function exerciseIdsWithData(f) {
@@ -371,7 +404,7 @@ function renderTrainingBody() {
 function exMeta(f, w, item, st) {
   if (st === "skipped") return "übersprungen";
   const sets = w ? validSets(w.sets[item.exId]) : [];
-  if (sets.length) return setsText(sets);
+  if (sets.length) return (prSetIndex(f, item.exId, ui.workoutDate, w.sets[item.exId]) >= 0 ? "🏆 PR · " : "") + setsText(sets);
   if (!item.inTemplate) return "nicht in dieser Vorlage";
   const prev = previousPerformance(f, item.exId, ui.workoutDate, workoutKey(ui.workoutDate, ui.templateId));
   return prev ? `zuletzt ${setsText(prev.sets)}` : "noch nie geloggt";
@@ -401,13 +434,14 @@ function exerciseBodyHTML(f, w, item, st, slots) {
   const prev = previousPerformance(f, item.exId, ui.workoutDate, workoutKey(ui.workoutDate, ui.templateId));
   const canCopy = prev && prev.sets.some((_, i) => !sets[i] || (sets[i].kg == null && sets[i].reps == null));
   const rows = [];
+  const prIdx = prSetIndex(f, item.exId, ui.workoutDate, sets);
   for (let i = 0; i < slots; i++) {
     const s = sets[i] || { kg: null, reps: null };
     const ph = prev ? (prev.sets[i] || prev.sets[prev.sets.length - 1]) : null;
     const isLogged = Number.isFinite(s.reps) && s.reps > 0;
     rows.push(`
-      <div class="set ${isLogged ? "logged" : ""}" data-idx="${i}">
-        <span class="set-no">${i + 1}</span>
+      <div class="set ${isLogged ? "logged" : ""} ${i === prIdx ? "pr" : ""}" data-idx="${i}">
+        <span class="set-no">${i === prIdx ? "PR" : i + 1}</span>
         <input type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" data-field="kg" value="${s.kg ?? ""}" placeholder="${ph && ph.kg != null ? ph.kg : "kg"}" aria-label="Satz ${i + 1} kg">
         <span class="set-x">×</span>
         <input type="text" inputmode="numeric" enterkeyhint="next" autocomplete="off" data-field="reps" class="${s.kg != null && !isLogged ? "need" : ""}" value="${s.reps ?? ""}" placeholder="${ph ? ph.reps : "Wdh."}" aria-label="Satz ${i + 1} Wiederholungen">
@@ -445,10 +479,14 @@ function refreshExerciseHead(exId, maybeAdvance) {
   el.querySelector(".ex-mark").textContent = st === "done" ? "✓" : "";
   el.querySelector(".ex-count").innerHTML = `${logged}/${slots}<small>Sätze</small>`;
   el.querySelector(".ex-meta").textContent = exMeta(f, w, item, st);
+  const prIdx = prSetIndex(f, exId, ui.workoutDate, w ? w.sets[exId] : []);
   el.querySelectorAll(".set").forEach(row => {
-    const s = w && w.sets[exId] ? w.sets[exId][+row.dataset.idx] : null;
+    const i = +row.dataset.idx;
+    const s = w && w.sets[exId] ? w.sets[exId][i] : null;
     const ok = s && Number.isFinite(s.reps) && s.reps > 0;
     row.classList.toggle("logged", !!ok);
+    row.classList.toggle("pr", i === prIdx);
+    row.querySelector(".set-no").textContent = i === prIdx ? "PR" : i + 1;
     row.querySelector("[data-field='reps']").classList.toggle("need", !!(s && s.kg != null && !ok));
   });
   const skipBtn = el.querySelector("[data-act='skip']");
@@ -516,6 +554,7 @@ function bindTraining(body) {
     if (field === "reps" && value != null) input.value = Math.round(value);
     try {
       fitness.logSet({ date: ui.workoutDate, templateId: ui.templateId, exerciseId: ex.dataset.exid, setIndex, [field]: value });
+      checkPR(ex.dataset.exid, setIndex);
     } catch (err) { toast(err.message, "err"); }
   });
 
@@ -582,6 +621,42 @@ function bindTraining(body) {
       }
     } catch (err) { toast(err.message, "err"); }
   });
+}
+
+/* ---------- PR-Moment ---------- */
+const celebrated = new Map(); // "datum|übung" -> bereits gefeiertes e1RM
+function checkPR(exId, setIndex) {
+  const f = fitness.getState();
+  const w = f.workouts[workoutKey(ui.workoutDate, ui.templateId)];
+  const set = w && w.sets[exId] ? w.sets[exId][setIndex] : null;
+  const prior = priorBest(f, exId, ui.workoutDate);
+  if (!isPR(prior, set)) return;
+  const key = `${ui.workoutDate}|${exId}`;
+  const now = e1rm(set.kg, set.reps);
+  if (celebrated.has(key) && now <= celebrated.get(key)) return;
+  celebrated.set(key, now);
+  celebratePR({ name: exerciseName(f, exId), set, now, gain: now - prior.e1rm, heavier: (set.kg || 0) > prior.topKg });
+}
+
+function celebratePR({ name, set, now, gain, heavier }) {
+  let el = document.getElementById("prFlash");
+  if (!el) { el = document.createElement("div"); el.id = "prFlash"; document.body.appendChild(el); el.addEventListener("click", () => el.classList.remove("on")); }
+  const sparks = Array.from({ length: 26 }, () => {
+    const a = Math.random() * Math.PI * 2, d = 90 + Math.random() * 150;
+    return `<i style="--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d - 40).toFixed(0)}px;--t:${(0.6 + Math.random() * 0.6).toFixed(2)}s"></i>`;
+  }).join("");
+  el.innerHTML = `<div class="pr-box">
+      <div class="pr-sparks">${sparks}</div>
+      <div class="pr-trophy">🏆</div>
+      <div class="pr-title">NEW PR</div>
+      <div class="pr-ex">${esc(name)}</div>
+      <div class="pr-set">${set.kg ?? 0} kg × ${set.reps}</div>
+      <div class="pr-meta">e1RM ${now.toFixed(1)} kg · +${gain.toFixed(1)} kg${heavier ? " · schwerster Satz bisher" : ""}</div>
+    </div>`;
+  el.classList.remove("on"); void el.offsetWidth; el.classList.add("on");
+  if (navigator.vibrate) navigator.vibrate([40, 60, 40, 60, 120]);
+  clearTimeout(celebratePR.t);
+  celebratePR.t = setTimeout(() => el.classList.remove("on"), 2800);
 }
 
 /* ---------- Letzte Trainings ---------- */
@@ -658,7 +733,8 @@ function renderManage(body) {
   const tpl = findTemplate(f, ui.manageTpl) || f.templates[0];
   ui.manageTpl = tpl.id;
   const notIn = f.exercises.filter(ex => !tpl.items.some(i => i.exId === ex.id));
-  const accOpen = !!body.querySelector("details[open]");
+  const accOpen = !!body.querySelector("details[open]:not([data-acc])");
+  const musOpen = !!body.querySelector('details[data-acc="muscles"][open]');
   body.innerHTML = `
     <div class="seg">${f.templates.map(t => `<button type="button" data-mtpl="${esc(t.id)}" class="${t.id === tpl.id ? "on" : ""}">${esc(t.name)}</button>`).join("")}</div>
     <div class="psec">Übungen · ${tpl.items.length}</div>
@@ -683,6 +759,16 @@ function renderManage(body) {
         <button type="submit" class="btn small primary">Anlegen</button>
       </form>
     </div>
+    <details class="acc" data-acc="muscles" ${musOpen ? "open" : ""}>
+      <summary>Muskelgruppen</summary>
+      <div class="acc-body stack">
+        ${f.exercises.map(ex => { const m = muscleOf(f, ex.id); return `<label class="lbl-field">${esc(ex.name)}
+          <select class="field" data-mg-muscle="${esc(ex.id)}">
+            <option value="">${m && !ex.muscle ? `Automatisch (${esc(MUSCLES[m.p])})` : "Automatisch"}</option>
+            ${Object.entries(MUSCLES).map(([k, v]) => `<option value="${k}" ${ex.muscle === k ? "selected" : ""}>${v}</option>`).join("")}
+          </select></label>`; }).join("")}
+      </div>
+    </details>
     <details class="acc" ${accOpen ? "open" : ""}>
       <summary>Vorlage bearbeiten</summary>
       <div class="acc-body stack">
@@ -703,6 +789,7 @@ function bindManage(body) {
     else if (el.matches("[data-mg-sets]")) fitness.setTargetSets(ui.manageTpl, +row.dataset.idx, parseNum(el.value));
     else if (el.matches("[data-mg-tplname]")) fitness.renameTemplate(ui.manageTpl, el.value);
     else if (el.matches("[data-mg-weekly]")) fitness.setWeeklyTarget(parseNum(el.value));
+    else if (el.matches("[data-mg-muscle]")) { fitness.setExerciseMuscle(el.dataset.mgMuscle, el.value); toast("Muskelgruppe gespeichert"); }
   });
   body.addEventListener("submit", e => {
     e.preventDefault();
@@ -785,6 +872,14 @@ function renderProgress(body) {
       <div><b>Zuletzt</b><span>${formatShort(last.date)}</span><em>${esc(setsText(last.sets))}</em></div>
     </div>
     <div class="callout ${stCls}"><b>${esc(status.label)}</b>${esc(status.detail)}</div>
+    <details class="acc" data-acc="records" ${body.querySelector('details[data-acc="records"][open]') ? "open" : ""}>
+      <summary>🏆 Bestwerte</summary>
+      <div class="acc-body" style="padding:0"><div class="rows" style="border:0;border-radius:0">
+      ${records(f).sort((a, b) => b.e1rm - a.e1rm).map(r => `<div class="r" data-ex="${esc(r.exId)}">
+        <span class="r-main">${esc(r.name)}<span class="r-sub">schwerster Satz ${r.heavy.kg ?? 0}×${r.heavy.reps} · ${formatShort(r.heavyDate)}</span></span>
+        <span class="r-val"><b>${r.e1rm.toFixed(1)}</b> kg<br><small>${r.e1rmSet.kg ?? 0}×${r.e1rmSet.reps}</small></span></div>`).join("")}
+      </div></div>
+    </details>
     <div class="psec">Plateau-Radar</div>
     <div class="rows radar">${radar.map(r => {
       const c = { progress: "var(--ok)", plateau: "var(--warn)", decline: "var(--bad)", insufficient: "var(--dim)" }[r.st.status];
@@ -825,4 +920,42 @@ function flash(el) {
   el.classList.add("invalid");
   el.focus();
   setTimeout(() => el.classList.remove("invalid"), 1500);
+}
+
+/* ============================================================
+   PANEL: MUSKELN
+   ============================================================ */
+export function openMuscles() {
+  openSheet({ id: "muscles", cat: "Körper", title: "Muskeln", sub: "Harte Sätze pro Muskelgruppe", bind: bindMuscles, render: renderMuscles });
+}
+function renderMuscles(body) {
+  const f = fitness.getState();
+  const today = todayKey();
+  const weeks = ui.muscleWeeks || 1;
+  const to = addDays(mondayOf(today), 6);
+  const from = addDays(mondayOf(today), -7 * (weeks - 1));
+  const ms = muscleSets(f, from, to);
+  const perWeek = g => ms[g] / weeks;
+  const lv = Object.fromEntries(Object.keys(MUSCLES).map(g => [g, perWeek(g) / WEEKLY_SET_TARGET]));
+  const noMap = f.exercises.filter(e => !muscleOf(f, e.id));
+  body.innerHTML = `
+    <div class="seg"><button type="button" data-mw="1" class="${weeks === 1 ? "on" : ""}">Diese Woche</button><button type="button" data-mw="4" class="${weeks === 4 ? "on" : ""}">Ø 4 Wochen</button></div>
+    <div class="bm-wrap">${bodySVG(lv)}</div>
+    <div class="psec">Sätze ${weeks === 1 ? "diese Woche" : "pro Woche (Ø)"}</div>
+    <div class="rows">${Object.entries(MUSCLES).map(([g, label]) => {
+      const n = perWeek(g);
+      const pct = Math.min(100, (n / WEEKLY_SET_TARGET) * 100);
+      const cls = n === 0 ? "st-bad" : n < WEEKLY_SET_TARGET * 0.6 ? "st-warn" : "st-ok";
+      return `<div class="r mus"><span class="r-main">${label}</span>
+        <span class="mus-bar"><i style="width:${pct}%"></i></span>
+        <span class="r-val ${cls}">${fmtSets(Math.round(n * 10) / 10)}</span></div>`;
+    }).join("")}</div>
+    <p class="hint">Richtwert für Muskelaufbau: etwa ${WEEKLY_SET_TARGET} harte Sätze pro Muskel und Woche. Hilfsmuskeln zählen halb (z.B. Trizeps bei Chestpress). Zuordnung ändern: Training → Vorlagen → Muskelgruppen.</p>
+    ${noMap.length ? `<div class="callout warn"><b>Ohne Muskelgruppe</b>${noMap.map(e => esc(e.name)).join(", ")}</div>` : ""}`;
+}
+function bindMuscles(body) {
+  body.addEventListener("click", e => {
+    const b = e.target.closest("[data-mw]");
+    if (b) { ui.muscleWeeks = +b.dataset.mw; refreshSheet(); }
+  });
 }

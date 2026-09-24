@@ -1,4 +1,4 @@
-const CACHE_NAME = "gainforge-cache-v7";
+const CACHE_NAME = "gainforge-cache-v8";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -21,6 +21,7 @@ const APP_SHELL = [
   "./js/fitness/charts.js",
   "./js/fitness/commands.js",
   "./js/fitness/ui.js",
+  "./js/fitness/gym.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

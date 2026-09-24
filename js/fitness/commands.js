@@ -120,6 +120,7 @@ export const fitness = {
     return id;
   },
   addExerciseToTemplate(templateId, exId, sets = 3) { M.addExerciseToTemplate(state(), templateId, exId, sets); commit("structure"); },
+  setExerciseMuscle(exId, group) { M.setExerciseMuscle(state(), exId, group || null); commit("structure"); },
   renameExercise(exId, name) { M.renameExercise(state(), exId, name); commit("structure"); },
   removeExerciseFromTemplate(templateId, index) { M.removeExerciseFromTemplate(state(), templateId, index); commit("structure"); },
   moveExercise(templateId, index, direction) { M.moveExerciseInTemplate(state(), templateId, index, direction); commit("structure"); },

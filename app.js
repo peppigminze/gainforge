@@ -11,7 +11,7 @@
 
 import { ensureFitness } from "./js/fitness/model.js";
 import { bindFitness, fitness } from "./js/fitness/commands.js";
-import { initFitnessUI, renderFitnessTiles, hudInfo, openTraining, openWeight, openProgress } from "./js/fitness/ui.js";
+import { initFitnessUI, renderFitnessTiles, hudInfo, openTraining, openWeight, openProgress, openMuscles } from "./js/fitness/ui.js";
 import { weightEntries, weeklyAverages, courseStatus, plateauStatus, exerciseSeries, fmtSigned } from "./js/fitness/analytics.js";
 import { exerciseName, findTemplate } from "./js/fitness/model.js";
 import { auth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "./js/firebase.js";
@@ -27,7 +27,7 @@ import { listActions, callAction, toolSchemas, bindActionUI } from "./js/actions
 import { cypher, initCypher } from "./js/cypher.js";
 import { todayKey, addDays, mondayOf, isoWeek, formatShort, DOW_SHORT, weekday, isDayKey } from "./js/dates.js";
 
-const VERSION = "3.3";
+const VERSION = "3.4";
 const $ = id => document.getElementById(id);
 
 function defaultData() {
@@ -120,6 +120,7 @@ $("tiles").addEventListener("click", e => {
   if (kind === "training") openTraining();
   else if (kind === "weight") openWeight({ focus: fitness.getState().weights[todayKey()] == null });
   else if (kind === "progress") openProgress();
+  else if (kind === "muscles") openMuscles();
   else if (kind === "calendar") openCalendar();
   else if (kind === "project") openProject(tile.dataset.id);
   else if (kind === "project-new") {
@@ -437,6 +438,7 @@ bindActionUI({
     if (view === "training") openTraining();
     else if (view === "weight") openWeight();
     else if (view === "progress") openProgress();
+    else if (view === "muscles") openMuscles();
     else if (view === "calendar") openCalendar();
     else if (view === "settings") openSettings();
     else if (view === "project") openProject(extra.id);

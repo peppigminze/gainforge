@@ -358,6 +358,13 @@ export function addExercise(f, name) {
 }
 
 /** Umbenennen ändert den Namen überall — die ID (und damit der Verlauf) bleibt. */
+/** Muskelgruppe einer Übung setzen (null = Standard/automatisch). */
+export function setExerciseMuscle(f, exId, group) {
+  const ex = f.exercises.find(e => e.id === exId);
+  if (!ex) throw new Error("Übung nicht gefunden");
+  if (group) ex.muscle = group; else delete ex.muscle;
+}
+
 export function renameExercise(f, exId, name) {
   const ex = findExercise(f, exId);
   const clean = String(name || "").trim();

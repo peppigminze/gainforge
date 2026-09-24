@@ -12,6 +12,7 @@
    Keine UI-Logik hier drin; die App ruft dieselben Befehle auf.
    ============================================================ */
 import { fitness } from "./fitness/commands.js";
+import { muscleSets, weekVolume, streak, records, MUSCLES } from "./fitness/gym.js";
 import { findTemplate, exerciseName, validSets, workoutKey, workoutHasData, exerciseStatus, slotCount } from "./fitness/model.js";
 import { weightEntries, weeklyAverages, courseStatus, currentPhase, exerciseSeries, plateauStatus, previousPerformance } from "./fitness/analytics.js";
 import { projects, projectProgress } from "./projects.js";
@@ -139,6 +140,19 @@ def("fitness_exercise_history", {
     const st = plateauStatus(series);
     return { exercise: ex.name, status: st.status, status_text: `${st.label}: ${st.detail}`,
       sessions: series.slice(-(a.limit || 6)).map(s => ({ date: s.date, sets: setsText(s.sets), e1rm_kg: +s.e1rm.toFixed(1) })) };
+  },
+});
+def("fitness_gym_stats", {
+  kind: "read", description: "Gym-Überblick diese Woche: Volumen (kg bewegt), Wochen-Streak, Sätze pro Muskelgruppe und die Bestwerte (PRs) pro Übung.",
+  run: () => {
+    const f = fitness.getState();
+    const m = mondayOf(todayKey());
+    const ms = muscleSets(f, m, addDays(m, 6));
+    return {
+      volume_kg: Math.round(weekVolume(f, m)), streak_weeks: streak(f).weeks,
+      sets_per_muscle: Object.fromEntries(Object.entries(ms).map(([g, n]) => [MUSCLES[g], n])),
+      records: records(f).map(r => ({ exercise: r.name, best_e1rm_kg: +r.e1rm.toFixed(1), best_set: `${r.e1rmSet.kg ?? 0}×${r.e1rmSet.reps}`, date: r.e1rmDate })),
+    };
   },
 });
 def("fitness_plateaus", {
@@ -278,7 +292,7 @@ def("projects_set_goal", {
 });
 def("ui_open", {
   description: "Ein Panel in der App öffnen.",
-  params: { view: { type: "string", enum: ["training", "weight", "progress", "calendar", "settings", "project", "home"], description: "Was geöffnet werden soll" }, project: P.project },
+  params: { view: { type: "string", enum: ["training", "weight", "progress", "muscles", "calendar", "settings", "project", "home"], description: "Was geöffnet werden soll" }, project: P.project },
   required: ["view"],
   run: a => {
     const extra = a.view === "project" ? { id: findProject(a.project).id } : {};
