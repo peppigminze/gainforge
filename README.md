@@ -5,7 +5,8 @@ Persönliches Life-Dashboard im HUD/Terminal-Look. Installierbar als PWA, Login 
 ## Umbenennung (v3.3 · GAINFORGE)
 
 - Die App heisst jetzt **GAINFORGE** und hat ein neues Icon (`icons/icon.svg` als Quelle, PNGs in 180/192/512, maskable, Favicon).
-- Unverändert (absichtlich): Repo-Name `silvanos` (sonst ändert sich die URL und die installierte App bricht), Firebase-Projekt `silvanos-1e7a0`, alte `silvanos_*`-Speicherschlüssel für die Migration. `window.SILVAN` funktioniert weiter als Alias von `window.GAINFORGE`.
+- Repo heisst `gainforge`, die App läuft unter `https://peppigminze.github.io/gainforge/`.
+- Unverändert (absichtlich): Firebase-Projekt `silvanos-1e7a0`, alte `silvanos_*`-Speicherschlüssel für die Migration. `window.SILVAN` funktioniert weiter als Alias von `window.GAINFORGE`.
 
 ## Cypher-Vorbereitung (v3.2 · Priorität 4)
 
@@ -60,7 +61,7 @@ git init
 git add .
 git commit -m "GAINFORGE v2"
 git branch -M main
-git remote add origin https://github.com/DEIN-USERNAME/silvanos.git
+git remote add origin https://github.com/DEIN-USERNAME/gainforge.git
 git push -u origin main
 ```
 
@@ -68,7 +69,7 @@ git push -u origin main
 
 1. Repo auf GitHub → **Settings → Pages**
 2. Source: **Deploy from a branch** → Branch `main`, Ordner `/ (root)` → Save
-3. Nach ~1 Minute läuft es unter `https://DEIN-USERNAME.github.io/silvanos/`
+3. Nach ~1 Minute läuft es unter `https://DEIN-USERNAME.github.io/gainforge/`
 
 PWA-Installation (Homescreen) braucht HTTPS — GitHub Pages liefert das automatisch. Über `file://` startet die App nicht (ES-Module + Firebase), über `localhost` schon. Für lokales Testen `localhost` zusätzlich in Firebase unter *Authorized domains* eintragen (ist standardmässig drin).
 
